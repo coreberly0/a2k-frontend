@@ -6,6 +6,7 @@ import { MODULES } from "@/lib/modules";
 import { logAudit } from "@/lib/data/audit";
 import { ordersStore, ORDER_STATUS } from "@/lib/data/orders";
 import { usersStore } from "@/lib/users";
+import { requestsStore } from "@/lib/data/requests";
 
 export async function saveRecord(fd: FormData) {
   const m = MODULES[String(fd.get("module"))];
@@ -62,5 +63,26 @@ export async function setOrderStatus(fd: FormData) {
   if (!o || o.vendorId !== s.id || !(ORDER_STATUS as readonly string[]).includes(status)) return;
   ordersStore.update(o.id, { status });
   logAudit(s.email, `Order ${o.id} → ${status}`);
+  revalidatePath("/dashboard", "layout");
+}
+
+// Customer places a new order (request). It is always saved under HIS OWN id.
+export async function createCustomerRequest(fd: FormData) {
+  const s = await requireRole(["customer"]);
+  const material = String(fd.get("material") ?? "").trim();
+  const site = String(fd.get("site") ?? "").trim();
+  const qty = Number(fd.get("qty"));
+  if (!material || !site || !(qty > 0)) return;
+
+  requestsStore.add({
+    customerId: s.id,
+    material,
+    qty,
+    site,
+    sellRate: 0,
+    status: "New",
+    date: new Date().toISOString().slice(0, 10),
+  });
+  logAudit(s.email, `New request: ${material} × ${qty}`);
   revalidatePath("/dashboard", "layout");
 }
