@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import type { Role } from "./roles";
 
 export const SESSION_COOKIE = "session";
-export type Session = { email: string; name: string; role: Role };
+export type Session = { id: string; email: string; name: string; role: Role };
 
 const secret = () => process.env.SESSION_SECRET ?? "dev-secret-change-me";
 const sign = (v: string) =>

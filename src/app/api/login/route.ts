@@ -1,28 +1,28 @@
 import { NextResponse } from "next/server";
-import { DEMO_USERS } from "@/lib/users";
+import { usersStore } from "@/lib/users";
+import { homePath } from "@/lib/roles";
 import { encode, SESSION_COOKIE } from "@/lib/session";
+import { logAudit } from "@/lib/data/audit";
 
 export async function POST(req: Request) {
   const { email, password } = await req.json().catch(() => ({}));
 
-  // Find the user by email and password only. The role comes from the user record.
-  const user = DEMO_USERS.find(
+  const user = usersStore.list().find(
     (u) =>
+      u.active &&
       u.email === String(email ?? "").toLowerCase().trim() &&
       u.password === password
   );
 
   if (!user) {
-    return NextResponse.json(
-      { error: "Email or password is incorrect." },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Email or password is incorrect." }, { status: 401 });
   }
 
-  const res = NextResponse.json({ redirect: `/dashboard/${user.role}` });
+  logAudit(user.email, "Signed in");
+  const res = NextResponse.json({ redirect: homePath(user.role) });
   res.cookies.set(
     SESSION_COOKIE,
-    encode({ email: user.email, name: user.name, role: user.role }),
+    encode({ id: user.id, email: user.email, name: user.name, role: user.role }),
     {
       httpOnly: true,
       sameSite: "lax",

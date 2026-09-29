@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
+import { homePath } from "@/lib/roles";
 import LoginForm from "./LoginForm";
 
 export default async function LoginPage() {
   const session = await getSession();
-  if (session) redirect(`/dashboard/${session.role}`);
+  if (session) redirect(homePath(session.role));
 
   return (
     <main className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
@@ -16,7 +17,7 @@ export default async function LoginPage() {
           </h1>
           <p className="mt-5 text-lg leading-7 text-white/75">
             Track diesel, tolls and driver bata against sales, and keep your
-            vendors and sellers on the same page.
+            vendors and customers on the same page.
           </p>
         </div>
         <div className="hazard h-3 w-full" aria-hidden />
