@@ -1,2 +1,9 @@
-export const inr = (n: number) => "₹" + n.toLocaleString("en-IN");
-export const today = () => new Date().toISOString().slice(0, 10);
+export const money = (n: number | string | null | undefined) =>
+  '₹' + Number(n ?? 0).toLocaleString('en-IN')
+
+export const todayStr = () => new Date().toLocaleDateString('en-CA')
+
+export const orNull = (s: string) => {
+  const t = s.trim()
+  return t === '' ? null : t
+}

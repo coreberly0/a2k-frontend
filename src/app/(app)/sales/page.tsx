@@ -1,0 +1,82 @@
+'use client'
+import { useMemo, useState } from 'react'
+import { useResource } from '@/hooks/useResource'
+import DataTable from '@/components/ui/DataTable'
+import Modal from '@/components/ui/Modal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import PageHeader from '@/components/ui/PageHeader'
+import RowActions from '@/components/ui/RowActions'
+import DateRangeFilter from '@/components/ui/DateRangeFilter'
+import SaleForm, { Sale } from '@/components/sales/SaleForm'
+import { money } from '@/lib/format'
+
+export default function SalesPage() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+
+  const query = useMemo(() => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    const s = qs.toString()
+    return s ? `?${s}` : ''
+  }, [from, to])
+
+  const r = useResource<Sale>('/sales', query)
+
+  return (
+    <div className="space-y-4">
+      <PageHeader title="Sales" addLabel="Add Bill" onAdd={r.openAdd} />
+
+      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+
+      {r.error && <p className="text-red-600 text-sm">{r.error}</p>}
+
+      {r.loading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : (
+        <DataTable<Sale>
+          columns={[
+            { header: 'Bill No', render: (s) => s.bill_no },
+            { header: 'Date', render: (s) => String(s.sale_date ?? '').slice(0, 10) },
+            { header: 'Customer', render: (s) => s.customer?.name || '-' },
+            { header: 'Material', render: (s) => s.material?.name || '-' },
+            { header: 'Vehicle', render: (s) => s.vehicle?.plate_number || '-' },
+            { header: 'Qty', render: (s) => s.quantity },
+            { header: 'Rate', render: (s) => money(s.rate) },
+            { header: 'Total', render: (s) => money(s.total_amount) },
+            { header: 'Payment', render: (s) => s.payment || '-' },
+          ]}
+          rows={r.rows}
+          rowKey={(s) => s.id}
+          actions={(s) => (
+            <RowActions
+              onEdit={() => r.openEdit(s)}
+              onDelete={r.admin ? () => r.askDelete(s) : undefined}
+            />
+          )}
+        />
+      )}
+
+      <Modal open={r.formOpen} title={r.editing ? 'Edit Bill' : 'Add Bill'} onClose={r.closeForm}>
+        <SaleForm
+          key={r.editing?.id ?? 'new'}
+          initial={r.editing}
+          saving={r.saving}
+          error={r.formError}
+          onSubmit={r.save}
+          onCancel={r.closeForm}
+        />
+      </Modal>
+
+      <ConfirmDialog
+        open={!!r.deleting}
+        title="Delete bill"
+        message={`Delete bill ${r.deleting?.bill_no}? This cannot be undone.`}
+        busy={r.deleteBusy}
+        onConfirm={r.confirmDelete}
+        onCancel={r.cancelDelete}
+      />
+    </div>
+  )
+}

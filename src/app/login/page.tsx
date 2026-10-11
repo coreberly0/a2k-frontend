@@ -1,31 +1,89 @@
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
-import { homePath } from "@/lib/roles";
-import LoginForm from "./LoginForm";
+'use client'
+import { useState, FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { Eye, EyeOff } from 'lucide-react'
+import { api } from '@/lib/api'
 
-export default async function LoginPage() {
-  const session = await getSession();
-  if (session) redirect(homePath(session.role));
+export default function LoginPage() {
+  const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const data = await api('/auth/login', {
+        method: 'POST',
+        body: { email, password },
+      })
+
+      // find the token whatever name the backend uses
+      const token = data.token ?? data.access_token ?? data.session?.access_token
+      if (!token || !data.user) {
+        console.log('LOGIN RESPONSE KEYS:', Object.keys(data))
+        throw new Error('Login response is missing token or user')
+      }
+
+      localStorage.setItem('token', token)
+      localStorage.setItem('user', JSON.stringify(data.user))
+      router.push('/dashboard')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <main className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
-      <section className="flex flex-col justify-between bg-steel px-8 py-10 text-white sm:px-14 sm:py-14">
-        <p className="font-display text-2xl font-bold tracking-wide">Load Ledger</p>
-        <div className="my-16 max-w-md">
-          <h1 className="font-display text-5xl font-bold leading-[1.05] sm:text-6xl">
-            Every load, every rupee, in one place.
-          </h1>
-          <p className="mt-5 text-lg leading-7 text-white/75">
-            Track diesel, tolls and driver bata against sales, and keep your
-            vendors and customers on the same page.
-          </p>
-        </div>
-        <div className="hazard h-3 w-full" aria-hidden />
-      </section>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-8 rounded-lg shadow w-full max-w-sm space-y-4"
+      >
+        <h1 className="text-2xl font-bold text-center">A2K Transport</h1>
 
-      <section className="flex items-center justify-center px-6 py-12 sm:px-12">
-        <LoginForm />
-      </section>
-    </main>
-  );
+        {error && <p className="text-red-600 text-sm">{error}</p>}
+
+        <input
+          type="email"
+          placeholder="Email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full border rounded px-3 py-2"
+        />
+
+        <div className="relative">
+          <input
+            type={showPassword ? 'text' : 'password'}
+            placeholder="Password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded px-3 py-2 pr-10"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((s) => !s)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+
+        <button
+          disabled={loading}
+          className="w-full bg-blue-600 text-white rounded py-2 disabled:opacity-50"
+        >
+          {loading ? 'Signing in...' : 'Login'}
+        </button>
+      </form>
+    </div>
+  )
 }
