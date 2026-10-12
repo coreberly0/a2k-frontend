@@ -35,7 +35,7 @@ type Props = {
 }
 
 export default function SaleForm({ initial, saving, error, onSubmit, onCancel }: Props) {
-  const customers = useOptions('/vendors', (r) => r.name)
+  const customers = useOptions('/customers', (r) => r.name)
   const materials = useOptions('/materials', (r) => r.name)
   const vehicles = useOptions('/vehicles', (r) => r.plate_number)
   const drivers = useOptions('/drivers', (r) => r.full_name)
