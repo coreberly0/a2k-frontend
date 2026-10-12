@@ -30,10 +30,14 @@ export default function SalesPage() {
 
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
 
-      {r.error && <p className="text-red-600 text-sm">{r.error}</p>}
+      {r.error && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {r.error}
+        </p>
+      )}
 
       {r.loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gravel">Loading...</p>
       ) : (
         <DataTable<Sale>
           columns={[
@@ -52,7 +56,7 @@ export default function SalesPage() {
           actions={(s) => (
             <RowActions
               onEdit={() => r.openEdit(s)}
-              onDelete={r.admin ? () => r.askDelete(s) : undefined}
+              onDelete={() => r.askDelete(s)}
             />
           )}
         />
@@ -73,6 +77,7 @@ export default function SalesPage() {
         open={!!r.deleting}
         title="Delete bill"
         message={`Delete bill ${r.deleting?.bill_no}? This cannot be undone.`}
+        confirmLabel="Delete bill"
         busy={r.deleteBusy}
         onConfirm={r.confirmDelete}
         onCancel={r.cancelDelete}
