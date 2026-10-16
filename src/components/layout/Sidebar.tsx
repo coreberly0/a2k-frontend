@@ -1,10 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Users, Package, Truck, UserCog,
-  UserRound, ReceiptText, ShoppingCart, Wallet, LogOut, X,
+  UserRound, ReceiptText, ShoppingCart, Wallet, LogOut, X, ShieldUser,
 } from 'lucide-react'
-import NavLink from './NavLink'
 import { getUser, logout, User } from '@/lib/auth'
 
 const GROUPS = [
@@ -35,12 +36,18 @@ const GROUPS = [
       { href: '/vehicles', label: 'Vehicles', icon: Truck },
     ],
   },
+  {
+    title: 'Admin',
+    adminOnly: true,
+    items: [{ href: '/employees', label: 'Employees', icon: ShieldUser }],
+  },
 ]
 
 type Props = { open?: boolean; onClose?: () => void }
 
 export default function Sidebar({ open = false, onClose }: Props) {
   const [user, setUser] = useState<User | null>(null)
+  const pathname = usePathname()
 
   useEffect(() => {
     setUser(getUser())
@@ -54,61 +61,99 @@ export default function Sidebar({ open = false, onClose }: Props) {
     .map((s) => s[0]?.toUpperCase())
     .join('')
 
+  const visibleGroups = GROUPS.filter((g) => !g.adminOnly || user?.role === 'admin')
+
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(href + '/')
+
   return (
     <>
       {/* mobile backdrop */}
       <div
         onClick={onClose}
-        className={`fixed inset-0 z-30 bg-ink/60 transition-opacity lg:hidden
+        className={`fixed inset-0 z-30 bg-ink/70 backdrop-blur-sm transition-opacity lg:hidden
           ${open ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-ink text-paper transition-transform duration-200
-          lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-ink text-paper shadow-2xl
+          transition-transform duration-200 lg:static lg:translate-x-0 lg:shadow-none
+          ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="hazard h-1.5 shrink-0" />
 
-        <div className="flex items-center justify-between px-4 py-5">
+        {/* brand */}
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-md bg-signal text-ink">
-              <Truck size={22} strokeWidth={2.25} />
+            <div className="grid h-11 w-11 place-items-center rounded-xl bg-signal text-ink shadow-lg shadow-signal/20">
+              <Truck size={24} strokeWidth={2.25} />
             </div>
             <div className="leading-none">
-              <p className="font-display text-2xl font-bold tracking-wide">A2K Transport</p>
-              <p className="mt-1 text-xs text-gravel">Load Ledger</p>
+              <p className="font-display text-xl font-bold tracking-wide">A2K Transport</p>
+              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gravel">
+                Load Ledger
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
             aria-label="Close menu"
-            className="rounded p-1 text-gravel hover:text-paper focus-visible:outline-2 focus-visible:outline-signal lg:hidden"
+            className="rounded-md p-1.5 text-gravel transition-colors hover:bg-white/10 hover:text-paper
+              focus-visible:outline-2 focus-visible:outline-signal lg:hidden"
           >
             <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-          {GROUPS.map((group) => (
+        {/* navigation (scrollbar hidden) */}
+        <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {visibleGroups.map((group) => (
             <div key={group.title}>
-              <p className="mb-1.5 px-3 text-xs font-medium text-gravel">{group.title}</p>
+              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-widest text-gravel/70">
+                {group.title}
+              </p>
               <div className="space-y-0.5">
-                {group.items.map((item) => (
-                  <NavLink key={item.href} {...item} onNavigate={onClose} />
-                ))}
+                {group.items.map(({ href, label, icon: Icon }) => {
+                  const active = isActive(href)
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={onClose}
+                      aria-current={active ? 'page' : undefined}
+                      className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium
+                        transition-all focus-visible:outline-2 focus-visible:outline-signal
+                        ${active
+                          ? 'bg-white/10 text-paper'
+                          : 'text-gravel hover:bg-white/5 hover:text-paper'}`}
+                    >
+                      {active && (
+                        <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-signal" />
+                      )}
+                      <Icon
+                        size={19}
+                        className={`shrink-0 transition-colors ${
+                          active ? 'text-signal' : 'group-hover:text-signal'
+                        }`}
+                      />
+                      <span className="truncate">{label}</span>
+                    </Link>
+                  )
+                })}
               </div>
             </div>
           ))}
         </nav>
 
+        {/* user card */}
         <div className="border-t border-white/10 p-3">
-          <div className="flex items-center gap-3 rounded-md px-2 py-2">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-steel text-sm font-semibold">
+          <div className="flex items-center gap-3 rounded-xl bg-white/5 p-2.5">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-signal text-sm font-bold text-ink">
               {initials || '?'}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{displayName}</p>
-              <p className="truncate text-xs capitalize text-gravel">
+              <p className="truncate text-sm font-semibold">{displayName}</p>
+              <p className="mt-0.5 truncate text-xs capitalize text-gravel">
                 {user?.role?.replace(/_/g, ' ')}
               </p>
             </div>
@@ -116,7 +161,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
               onClick={logout}
               aria-label="Log out"
               title="Log out"
-              className="rounded-md p-2 text-gravel transition-colors hover:bg-white/10 hover:text-signal
+              className="rounded-lg p-2 text-gravel transition-colors hover:bg-white/10 hover:text-signal
                 focus-visible:outline-2 focus-visible:outline-signal"
             >
               <LogOut size={18} />

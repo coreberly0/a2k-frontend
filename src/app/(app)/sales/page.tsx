@@ -2,13 +2,14 @@
 import { useMemo, useState } from 'react'
 import { useResource } from '@/hooks/useResource'
 import DataTable from '@/components/ui/DataTable'
-import Modal from '@/components/ui/Modal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import PageHeader from '@/components/ui/PageHeader'
 import RowActions from '@/components/ui/RowActions'
 import DateRangeFilter from '@/components/ui/DateRangeFilter'
-import SaleForm, { Sale } from '@/components/sales/SaleForm'
+import { Sale } from '@/components/sales/SaleForm'
 import { money } from '@/lib/format'
+import AddSale from './add'
+import EditSale from './edit'
 
 export default function SalesPage() {
   const [from, setFrom] = useState('')
@@ -62,16 +63,24 @@ export default function SalesPage() {
         />
       )}
 
-      <Modal open={r.formOpen} title={r.editing ? 'Edit Bill' : 'Add Bill'} onClose={r.closeForm}>
-        <SaleForm
-          key={r.editing?.id ?? 'new'}
-          initial={r.editing}
-          saving={r.saving}
-          error={r.formError}
-          onSubmit={r.save}
-          onCancel={r.closeForm}
-        />
-      </Modal>
+      {/* Add popup: open when the form is open and nothing is being edited */}
+      <AddSale
+        open={r.formOpen && !r.editing}
+        saving={r.saving}
+        error={r.formError}
+        onSubmit={r.save}
+        onClose={r.closeForm}
+      />
+
+      {/* Edit popup: open when the form is open and a bill is selected */}
+      <EditSale
+        open={r.formOpen && !!r.editing}
+        sale={r.editing}
+        saving={r.saving}
+        error={r.formError}
+        onSubmit={r.save}
+        onClose={r.closeForm}
+      />
 
       <ConfirmDialog
         open={!!r.deleting}

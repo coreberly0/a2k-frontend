@@ -1,3 +1,5 @@
+import { clearTokens } from './api'
+
 export type User = {
   id?: string
   name?: string
@@ -20,7 +22,6 @@ export function isAdmin(user: User | null): boolean {
 }
 
 export function logout() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  clearTokens() // removes access_token, refresh_token and user
   window.location.href = '/login'
 }
