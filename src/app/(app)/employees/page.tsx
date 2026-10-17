@@ -1,62 +1,560 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { api } from '@/lib/api' // your fetch helper that attaches the auth token
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Plus, Search, Pencil, Trash2, X, Loader2, Eye, EyeOff,
+  Users, ShieldCheck, AlertTriangle, UserRound, Mail, Lock,
+  ChevronDown, Check, UserPlus, UserCog, User,
+} from 'lucide-react'
+import { api } from '@/lib/api'
 
 type Employee = { id: string; full_name: string | null; email: string; role: string | null }
+type FormState = { full_name: string; email: string; password: string; role: string }
+
+const emptyForm: FormState = { full_name: '', email: '', password: '', role: 'employee' }
+
+const roleOptions = [
+  { value: 'employee', label: 'Employee', desc: 'Can add and view day-to-day entries', icon: User },
+  { value: 'admin', label: 'Admin', desc: 'Full access, including managing employees', icon: ShieldCheck },
+]
+
+function initials(u: Employee) {
+  const src = (u.full_name || u.email || '?').trim()
+  const parts = src.split(/\s+/)
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?'
+}
+
+/* ---------- custom dropdown ---------- */
+function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const current = roleOptions.find((o) => o.value === value) || roleOptions[0]
+  const CurrentIcon = current.icon
+
+  // close when clicking outside
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onKeyDown={(e) => {
+        // Escape closes only the dropdown, not the whole popup
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          setOpen(false)
+        }
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`flex w-full items-center gap-3 rounded-xl border bg-paper/60 px-3.5 py-3 text-left transition focus:outline-none ${
+          open
+            ? 'border-signal bg-white ring-4 ring-signal/20'
+            : 'border-black/10 hover:border-black/20 focus:border-signal focus:ring-4 focus:ring-signal/20'
+        }`}
+      >
+        <CurrentIcon size={18} className="shrink-0 text-gravel" />
+        <span className="flex-1 text-base text-ink">{current.label}</span>
+        <ChevronDown
+          size={18}
+          className={`shrink-0 text-gravel transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-black/10 bg-white p-1.5 shadow-xl shadow-ink/10"
+        >
+          {roleOptions.map((o) => {
+            const Icon = o.icon
+            const selected = o.value === value
+            return (
+              <li key={o.value} role="option" aria-selected={selected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(o.value)
+                    setOpen(false)
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                    selected ? 'bg-signal/15' : 'hover:bg-paper'
+                  }`}
+                >
+                  <span
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+                      o.value === 'admin' ? 'bg-ink text-paper' : 'bg-signal/20 text-ink'
+                    }`}
+                  >
+                    <Icon size={18} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-ink">{o.label}</span>
+                    <span className="block text-xs text-gravel">{o.desc}</span>
+                  </span>
+                  {selected && <Check size={18} className="shrink-0 text-ink" />}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 export default function EmployeesPage() {
   const [list, setList] = useState<Employee[]>([])
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'employee' })
-  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [query, setQuery] = useState('')
+  const [meId, setMeId] = useState<string | null>(null)
+
+  // modal state: null = closed
+  const [modal, setModal] = useState<null | { mode: 'add' } | { mode: 'edit'; user: Employee }>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
+  const [showPw, setShowPw] = useState(false)
+  const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const load = async () => setList(await api('/employees'))
-  useEffect(() => { load().catch((e) => setError(e.message)) }, [])
+  // delete confirmation
+  const [toDelete, setToDelete] = useState<Employee | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setSaving(true)
+  async function load() {
     try {
-      await api('/employees', { method: 'POST', body: JSON.stringify(form) })
-      setForm({ full_name: '', email: '', password: '', role: 'employee' })
-      await load()
-    } catch (err: any) {
-      setError(err.message)
+      setList(await api('/employees'))
+      setPageError('')
+    } catch (e: any) {
+      setPageError(e.message || 'Could not load employees')
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
-  const set = (k: string) => (e: React.ChangeEvent<any>) =>
-    setForm({ ...form, [k]: e.target.value })
+  useEffect(() => {
+    load()
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null')
+      if (u?.id) setMeId(String(u.id))
+    } catch {}
+  }, [])
+
+  // close modals with Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setModal(null)
+        setToDelete(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((u) =>
+      [u.full_name, u.email, u.role].some((v) => (v || '').toLowerCase().includes(q))
+    )
+  }, [list, query])
+
+  const adminCount = list.filter((u) => u.role === 'admin').length
+
+  function openAdd() {
+    setForm(emptyForm)
+    setFormError('')
+    setShowPw(false)
+    setModal({ mode: 'add' })
+  }
+
+  function openEdit(user: Employee) {
+    setForm({
+      full_name: user.full_name || '',
+      email: user.email,
+      password: '',
+      role: user.role || 'employee',
+    })
+    setFormError('')
+    setShowPw(false)
+    setModal({ mode: 'edit', user })
+  }
+
+  async function submit(e: React.FormEvent) {
+  e.preventDefault()
+  if (!modal) return
+  setFormError('')
+  setSaving(true)
+  try {
+    if (modal.mode === 'add') {
+      await api('/employees', { method: 'POST', body: form })
+    } else {
+      // password is optional when editing: blank = keep the current one
+      const { password, ...rest } = form
+      await api(`/employees/${modal.user.id}`, {
+        method: 'PATCH', // was 'PUT', your backend route is router.patch('/:id')
+        body: password ? { ...rest, password } : rest,
+      })
+    }
+    setModal(null)
+    await load()
+  } catch (err: any) {
+    setFormError(err.message || 'Something went wrong')
+  } finally {
+    setSaving(false)
+  }
+}
+
+  async function confirmDelete() {
+    if (!toDelete) return
+    setDeleting(true)
+    try {
+      await api(`/employees/${toDelete.id}`, { method: 'DELETE' })
+      setToDelete(null)
+      await load()
+    } catch (err: any) {
+      setPageError(err.message || 'Could not delete employee')
+      setToDelete(null)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const set = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  // shared field styles (same look as the login page)
+  const fieldWrap =
+    'flex items-center gap-3 rounded-xl border border-black/10 bg-paper/60 px-3.5 transition focus-within:border-signal focus-within:bg-white focus-within:ring-4 focus-within:ring-signal/20'
+  const fieldInput =
+    'w-full bg-transparent py-3 text-base text-ink outline-none placeholder:text-gravel/60 [&:-webkit-autofill]:[-webkit-box-shadow:0_0_0_1000px_#fff_inset]'
+  const labelCls = 'mb-1.5 block text-sm font-medium text-ink'
 
   return (
-    <div className="space-y-6 p-4">
-      <h1 className="font-display text-2xl font-bold">Employees</h1>
-
-      <form onSubmit={submit} className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
-        <input className="rounded border p-2" placeholder="Full name" value={form.full_name} onChange={set('full_name')} />
-        <input className="rounded border p-2" type="email" placeholder="Email" required value={form.email} onChange={set('email')} />
-        <input className="rounded border p-2" type="password" placeholder="Password (min 8)" minLength={8} required value={form.password} onChange={set('password')} />
-        <select className="rounded border p-2" value={form.role} onChange={set('role')}>
-          <option value="employee">Employee</option>
-          <option value="admin">Admin</option>
-        </select>
-        {error && <p className="text-sm text-red-600 sm:col-span-2">{error}</p>}
-        <button disabled={saving} className="rounded bg-signal p-2 font-medium text-ink sm:col-span-2">
-          {saving ? 'Adding…' : 'Add employee'}
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+      {/* header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-ink">Employees</h1>
+          <p className="mt-1 text-sm text-gravel">Manage who can sign in to the ledger.</p>
+        </div>
+        <button
+          onClick={openAdd}
+          className="flex items-center gap-2 rounded-xl bg-signal px-4 py-2.5 font-semibold text-ink shadow-lg shadow-signal/30 transition hover:brightness-95 active:scale-[0.99]"
+        >
+          <Plus size={18} /> Add employee
         </button>
-      </form>
+      </div>
 
-      <ul className="divide-y rounded-md border">
-        {list.map((u) => (
-          <li key={u.id} className="flex justify-between p-3">
-            <span>{u.full_name || u.email}</span>
-            <span className="text-sm capitalize text-gravel">{u.role}</span>
-          </li>
-        ))}
-      </ul>
+      {/* stats */}
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+        <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
+          <span className="grid h-10 w-10 place-items-center rounded-lg bg-signal/20 text-ink">
+            <Users size={20} />
+          </span>
+          <div>
+            <p className="text-2xl font-bold leading-none text-ink">{list.length}</p>
+            <p className="mt-1 text-xs text-gravel">Total</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
+          <span className="grid h-10 w-10 place-items-center rounded-lg bg-ink text-paper">
+            <ShieldCheck size={20} />
+          </span>
+          <div>
+            <p className="text-2xl font-bold leading-none text-ink">{adminCount}</p>
+            <p className="mt-1 text-xs text-gravel">Admins</p>
+          </div>
+        </div>
+      </div>
+
+      {pageError && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {pageError}
+        </p>
+      )}
+
+      {/* table card */}
+      <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+        <div className="border-b border-black/5 p-4">
+          <div className="flex items-center gap-2 rounded-xl border border-black/10 bg-paper/60 px-3 focus-within:border-signal focus-within:bg-white focus-within:ring-4 focus-within:ring-signal/20 sm:max-w-xs">
+            <Search size={18} className="text-gravel" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, email or role"
+              className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-paper/70 text-xs font-semibold text-gravel">
+              <tr>
+                <th className="w-16 px-4 py-3">S.No</th>
+                <th className="px-4 py-3">Employee</th>
+                <th className="hidden px-4 py-3 sm:table-cell">Email</th>
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/5">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-12 text-center text-gravel">
+                    <Loader2 className="mx-auto animate-spin" size={22} />
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-12 text-center text-gravel">
+                    {query ? 'No employees match your search.' : 'No employees yet. Add the first one.'}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u, i) => {
+                  const isMe = meId === String(u.id)
+                  return (
+                    <tr key={u.id} className="transition hover:bg-paper/50">
+                      <td className="px-4 py-3.5 font-medium text-gravel">{i + 1}</td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-signal">
+                            {initials(u)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-ink">
+                              {u.full_name || '—'}
+                              {isMe && (
+                                <span className="ml-2 rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-medium text-gravel">
+                                  You
+                                </span>
+                              )}
+                            </p>
+                            {/* email shown under name on mobile */}
+                            <p className="truncate text-xs text-gravel sm:hidden">{u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="hidden px-4 py-3.5 text-gravel sm:table-cell">{u.email}</td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
+                            u.role === 'admin' ? 'bg-ink text-paper' : 'bg-signal/20 text-ink'
+                          }`}
+                        >
+                          {u.role || 'employee'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            onClick={() => openEdit(u)}
+                            aria-label={`Edit ${u.full_name || u.email}`}
+                            className="rounded-lg p-2 text-gravel transition hover:bg-black/5 hover:text-ink"
+                          >
+                            <Pencil size={17} />
+                          </button>
+                          <button
+                            onClick={() => setToDelete(u)}
+                            disabled={isMe}
+                            title={isMe ? "You can't delete your own account" : 'Delete'}
+                            aria-label={`Delete ${u.full_name || u.email}`}
+                            className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gravel"
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* add / edit modal */}
+      {modal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink/60 p-4 backdrop-blur-sm"
+          onClick={() => !saving && setModal(null)}
+        >
+          <form
+            onSubmit={submit}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+          >
+            {/* header */}
+            <div className="flex items-start gap-4 border-b border-black/5 p-6">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-signal/20 text-ink">
+                {modal.mode === 'add' ? <UserPlus size={22} /> : <UserCog size={22} />}
+              </span>
+              <div className="flex-1">
+                <h2 className="font-display text-2xl font-bold leading-tight text-ink">
+                  {modal.mode === 'add' ? 'Add employee' : 'Edit employee'}
+                </h2>
+                <p className="mt-1 text-sm text-gravel">
+                  {modal.mode === 'add'
+                    ? 'They can sign in with this email and password.'
+                    : 'Leave password blank to keep the current one.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                aria-label="Close"
+                className="rounded-lg p-1.5 text-gravel transition hover:bg-black/5 hover:text-ink"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* body */}
+            <div className="space-y-5 p-6">
+              <div>
+                <label className={labelCls}>Full name</label>
+                <div className={fieldWrap}>
+                  <UserRound size={18} className="shrink-0 text-gravel" />
+                  <input
+                    className={fieldInput}
+                    placeholder="e.g. Ravi Kumar"
+                    value={form.full_name}
+                    onChange={set('full_name')}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Email</label>
+                <div className={fieldWrap}>
+                  <Mail size={18} className="shrink-0 text-gravel" />
+                  <input
+                    className={fieldInput}
+                    type="email"
+                    required
+                    placeholder="you@company.com"
+                    value={form.email}
+                    onChange={set('email')}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>
+                  Password{' '}
+                  {modal.mode === 'edit' && <span className="font-normal text-gravel">(optional)</span>}
+                </label>
+                <div className={fieldWrap}>
+                  <Lock size={18} className="shrink-0 text-gravel" />
+                  <input
+                    className={fieldInput}
+                    type={showPw ? 'text' : 'password'}
+                    placeholder="Minimum 8 characters"
+                    minLength={8}
+                    required={modal.mode === 'add'}
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={set('password')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((v) => !v)}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                    className="rounded-md p-1 text-gravel transition hover:bg-black/5 hover:text-ink"
+                  >
+                    {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Role</label>
+                <RoleSelect value={form.role} onChange={(v) => setForm((f) => ({ ...f, role: v }))} />
+              </div>
+
+              {formError && (
+                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+                  {formError}
+                </p>
+              )}
+            </div>
+
+            {/* footer */}
+            <div className="flex gap-3 rounded-b-2xl border-t border-black/5 bg-paper/60 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="flex-1 rounded-xl border border-black/10 bg-white py-3 font-medium text-ink transition hover:bg-black/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-signal py-3 font-semibold text-ink shadow-lg shadow-signal/30 transition hover:brightness-95 disabled:opacity-60"
+              >
+                {saving && <Loader2 size={18} className="animate-spin" />}
+                {saving ? 'Saving…' : modal.mode === 'add' ? 'Add employee' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* delete confirmation */}
+      {toDelete && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-4 backdrop-blur-sm"
+          onClick={() => !deleting && setToDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-6 text-center shadow-2xl"
+          >
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-red-50 text-red-600">
+              <AlertTriangle size={24} />
+            </span>
+            <div>
+              <h2 className="font-display text-xl font-bold text-ink">Delete employee?</h2>
+              <p className="mt-1 text-sm text-gravel">
+                <span className="font-medium text-ink">{toDelete.full_name || toDelete.email}</span> will lose access.
+                This can&apos;t be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setToDelete(null)}
+                className="flex-1 rounded-xl border border-black/10 py-2.5 font-medium text-ink transition hover:bg-black/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2.5 font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting && <Loader2 size={16} className="animate-spin" />}
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
