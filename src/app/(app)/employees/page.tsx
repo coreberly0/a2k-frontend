@@ -1,17 +1,20 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Plus, Search, Pencil, Trash2, X, Loader2, Eye, EyeOff,
+  Plus, Search, Pencil, Trash2, Loader2, Eye, EyeOff,
   Users, ShieldCheck, AlertTriangle, UserRound, Mail, Lock,
   ChevronDown, Check, UserPlus, UserCog, User,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import Modal from '@/components/ui/Modal'
+import { Field, Section, FormActions, fieldBase, inputBase } from '@/components/ui/formKit'
 
 type Employee = { id: string; full_name: string | null; email: string; role: string | null }
 type FormState = { full_name: string; email: string; password: string; role: string }
 
 const emptyForm: FormState = { full_name: '', email: '', password: '', role: 'employee' }
+const EMPLOYEE_FORM_ID = 'employee-form'
 
 const roleOptions = [
   { value: 'employee', label: 'Employee', desc: 'Can add and view day-to-day entries', icon: User },
@@ -24,29 +27,18 @@ function initials(u: Employee) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?'
 }
 
-/* ---------- custom dropdown ---------- */
+/* ---------- role dropdown ----------
+   The list opens in the normal flow (it pushes the content below it down),
+   so it is never cut off inside the scrolling side panel. */
 function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
   const current = roleOptions.find((o) => o.value === value) || roleOptions[0]
   const CurrentIcon = current.icon
 
-  // close when clicking outside
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
   return (
     <div
-      ref={ref}
-      className="relative"
       onKeyDown={(e) => {
-        // Escape closes only the dropdown, not the whole popup
+        // Escape closes only the list, not the whole panel
         if (e.key === 'Escape' && open) {
           e.stopPropagation()
           setOpen(false)
@@ -61,7 +53,7 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
         className={`flex w-full items-center gap-3 rounded-xl border bg-paper/60 px-3.5 py-3 text-left transition focus:outline-none ${
           open
             ? 'border-signal bg-white ring-4 ring-signal/20'
-            : 'border-black/10 hover:border-black/20 focus:border-signal focus:ring-4 focus:ring-signal/20'
+            : 'border-black/10 hover:border-black/20 focus-visible:border-signal focus-visible:ring-4 focus-visible:ring-signal/20'
         }`}
       >
         <CurrentIcon size={18} className="shrink-0 text-gravel" />
@@ -75,7 +67,7 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
       {open && (
         <ul
           role="listbox"
-          className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-black/10 bg-white p-1.5 shadow-xl shadow-ink/10"
+          className="mt-2 overflow-hidden rounded-xl border border-black/10 bg-white p-1.5 shadow-lg shadow-ink/10"
         >
           {roleOptions.map((o) => {
             const Icon = o.icon
@@ -121,7 +113,7 @@ export default function EmployeesPage() {
   const [query, setQuery] = useState('')
   const [meId, setMeId] = useState<string | null>(null)
 
-  // modal state: null = closed
+  // side panel state: null = closed
   const [modal, setModal] = useState<null | { mode: 'add' } | { mode: 'edit'; user: Employee }>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [showPw, setShowPw] = useState(false)
@@ -151,17 +143,15 @@ export default function EmployeesPage() {
     } catch {}
   }, [])
 
-  // close modals with Escape
+  // close the delete dialog with Escape (the side panel handles its own Escape)
   useEffect(() => {
+    if (!toDelete) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setModal(null)
-        setToDelete(null)
-      }
+      if (e.key === 'Escape' && !deleting) setToDelete(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [toDelete, deleting])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -172,6 +162,9 @@ export default function EmployeesPage() {
   }, [list, query])
 
   const adminCount = list.filter((u) => u.role === 'admin').length
+
+  // must stay stable, otherwise the panel steals focus from the inputs on every keystroke
+  const closeModal = useCallback(() => setModal(null), [])
 
   function openAdd() {
     setForm(emptyForm)
@@ -193,29 +186,29 @@ export default function EmployeesPage() {
   }
 
   async function submit(e: React.FormEvent) {
-  e.preventDefault()
-  if (!modal) return
-  setFormError('')
-  setSaving(true)
-  try {
-    if (modal.mode === 'add') {
-      await api('/employees', { method: 'POST', body: form })
-    } else {
-      // password is optional when editing: blank = keep the current one
-      const { password, ...rest } = form
-      await api(`/employees/${modal.user.id}`, {
-        method: 'PATCH', // was 'PUT', your backend route is router.patch('/:id')
-        body: password ? { ...rest, password } : rest,
-      })
+    e.preventDefault()
+    if (!modal) return
+    setFormError('')
+    setSaving(true)
+    try {
+      if (modal.mode === 'add') {
+        await api('/employees', { method: 'POST', body: form })
+      } else {
+        // password is optional when editing: blank = keep the current one
+        const { password, ...rest } = form
+        await api(`/employees/${modal.user.id}`, {
+          method: 'PATCH', // your backend route is router.patch('/:id')
+          body: password ? { ...rest, password } : rest,
+        })
+      }
+      setModal(null)
+      await load()
+    } catch (err: any) {
+      setFormError(err.message || 'Something went wrong')
+    } finally {
+      setSaving(false)
     }
-    setModal(null)
-    await load()
-  } catch (err: any) {
-    setFormError(err.message || 'Something went wrong')
-  } finally {
-    setSaving(false)
   }
-}
 
   async function confirmDelete() {
     if (!toDelete) return
@@ -235,12 +228,7 @@ export default function EmployeesPage() {
   const set = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }))
 
-  // shared field styles (same look as the login page)
-  const fieldWrap =
-    'flex items-center gap-3 rounded-xl border border-black/10 bg-paper/60 px-3.5 transition focus-within:border-signal focus-within:bg-white focus-within:ring-4 focus-within:ring-signal/20'
-  const fieldInput =
-    'w-full bg-transparent py-3 text-base text-ink outline-none placeholder:text-gravel/60 [&:-webkit-autofill]:[-webkit-box-shadow:0_0_0_1000px_#fff_inset]'
-  const labelCls = 'mb-1.5 block text-sm font-medium text-ink'
+  const isEdit = modal?.mode === 'edit'
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
@@ -388,133 +376,93 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* add / edit modal */}
-      {modal && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink/60 p-4 backdrop-blur-sm"
-          onClick={() => !saving && setModal(null)}
-        >
-          <form
-            onSubmit={submit}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
-          >
-            {/* header */}
-            <div className="flex items-start gap-4 border-b border-black/5 p-6">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-signal/20 text-ink">
-                {modal.mode === 'add' ? <UserPlus size={22} /> : <UserCog size={22} />}
-              </span>
-              <div className="flex-1">
-                <h2 className="font-display text-2xl font-bold leading-tight text-ink">
-                  {modal.mode === 'add' ? 'Add employee' : 'Edit employee'}
-                </h2>
-                <p className="mt-1 text-sm text-gravel">
-                  {modal.mode === 'add'
-                    ? 'They can sign in with this email and password.'
-                    : 'Leave password blank to keep the current one.'}
-                </p>
+      {/* Add / Edit side panel */}
+      <Modal
+        open={!!modal}
+        title={isEdit ? 'Edit Employee' : 'Add Employee'}
+        description={
+          isEdit ? 'Leave password blank to keep the current one.' : 'They can sign in with this email and password.'
+        }
+        icon={isEdit ? <UserCog size={22} /> : <UserPlus size={22} />}
+        tone={isEdit ? 'info' : 'success'}
+        size="md"
+        placement="right"
+        onClose={closeModal}
+        footer={
+          <FormActions
+            formId={EMPLOYEE_FORM_ID}
+            saving={saving}
+            onCancel={closeModal}
+            label={isEdit ? 'Save changes' : 'Add employee'}
+          />
+        }
+      >
+        <form id={EMPLOYEE_FORM_ID} onSubmit={submit} className="space-y-7 text-ink">
+          {formError && (
+            <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+              {formError}
+            </p>
+          )}
+
+          <Section title="Employee details">
+            <Field label="Full name" optional>
+              <div className={`${fieldBase} border-black/10`}>
+                <UserRound size={18} className="shrink-0 text-gravel" />
+                <input
+                  className={inputBase}
+                  placeholder="e.g. Ravi Kumar"
+                  value={form.full_name}
+                  onChange={set('full_name')}
+                />
               </div>
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                aria-label="Close"
-                className="rounded-lg p-1.5 text-gravel transition hover:bg-black/5 hover:text-ink"
-              >
-                <X size={20} />
-              </button>
-            </div>
+            </Field>
 
-            {/* body */}
-            <div className="space-y-5 p-6">
-              <div>
-                <label className={labelCls}>Full name</label>
-                <div className={fieldWrap}>
-                  <UserRound size={18} className="shrink-0 text-gravel" />
-                  <input
-                    className={fieldInput}
-                    placeholder="e.g. Ravi Kumar"
-                    value={form.full_name}
-                    onChange={set('full_name')}
-                  />
-                </div>
+            <Field label="Role" required>
+              <RoleSelect value={form.role} onChange={(v) => setForm((f) => ({ ...f, role: v }))} />
+            </Field>
+          </Section>
+
+          <Section title="Sign in details">
+            <Field label="Email" required>
+              <div className={`${fieldBase} border-black/10`}>
+                <Mail size={18} className="shrink-0 text-gravel" />
+                <input
+                  className={inputBase}
+                  type="email"
+                  required
+                  placeholder="you@company.com"
+                  value={form.email}
+                  onChange={set('email')}
+                />
               </div>
+            </Field>
 
-              <div>
-                <label className={labelCls}>Email</label>
-                <div className={fieldWrap}>
-                  <Mail size={18} className="shrink-0 text-gravel" />
-                  <input
-                    className={fieldInput}
-                    type="email"
-                    required
-                    placeholder="you@company.com"
-                    value={form.email}
-                    onChange={set('email')}
-                  />
-                </div>
+            <Field label="Password" required={!isEdit} optional={isEdit}>
+              <div className={`${fieldBase} border-black/10`}>
+                <Lock size={18} className="shrink-0 text-gravel" />
+                <input
+                  className={inputBase}
+                  type={showPw ? 'text' : 'password'}
+                  placeholder="Minimum 8 characters"
+                  minLength={8}
+                  required={!isEdit}
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={set('password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? 'Hide password' : 'Show password'}
+                  className="rounded-md p-1 text-gravel transition hover:bg-black/5 hover:text-ink"
+                >
+                  {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
-
-              <div>
-                <label className={labelCls}>
-                  Password{' '}
-                  {modal.mode === 'edit' && <span className="font-normal text-gravel">(optional)</span>}
-                </label>
-                <div className={fieldWrap}>
-                  <Lock size={18} className="shrink-0 text-gravel" />
-                  <input
-                    className={fieldInput}
-                    type={showPw ? 'text' : 'password'}
-                    placeholder="Minimum 8 characters"
-                    minLength={8}
-                    required={modal.mode === 'add'}
-                    autoComplete="new-password"
-                    value={form.password}
-                    onChange={set('password')}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw((v) => !v)}
-                    aria-label={showPw ? 'Hide password' : 'Show password'}
-                    className="rounded-md p-1 text-gravel transition hover:bg-black/5 hover:text-ink"
-                  >
-                    {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelCls}>Role</label>
-                <RoleSelect value={form.role} onChange={(v) => setForm((f) => ({ ...f, role: v }))} />
-              </div>
-
-              {formError && (
-                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-                  {formError}
-                </p>
-              )}
-            </div>
-
-            {/* footer */}
-            <div className="flex gap-3 rounded-b-2xl border-t border-black/5 bg-paper/60 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                className="flex-1 rounded-xl border border-black/10 bg-white py-3 font-medium text-ink transition hover:bg-black/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-signal py-3 font-semibold text-ink shadow-lg shadow-signal/30 transition hover:brightness-95 disabled:opacity-60"
-              >
-                {saving && <Loader2 size={18} className="animate-spin" />}
-                {saving ? 'Saving…' : modal.mode === 'add' ? 'Add employee' : 'Save changes'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+            </Field>
+          </Section>
+        </form>
+      </Modal>
 
       {/* delete confirmation */}
       {toDelete && (
