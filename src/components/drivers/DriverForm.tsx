@@ -1,7 +1,7 @@
 'use client'
 import { useState, FormEvent } from 'react'
-import FormField, { inputClass } from '@/components/ui/FormField'
-import FormButtons from '@/components/ui/FormButtons'
+import { UserRound, Phone } from 'lucide-react'
+import { Field, Section, fieldBase, inputBase } from '@/components/ui/formKit'
 import { orNull } from '@/lib/format'
 
 export type Driver = {
@@ -15,10 +15,12 @@ type Props = {
   saving: boolean
   error: string
   onSubmit: (values: Record<string, unknown>) => void
-  onCancel: () => void
 }
 
-export default function DriverForm({ initial, saving, error, onSubmit, onCancel }: Props) {
+/** The panel footer buttons submit this form through its id. */
+export const DRIVER_FORM_ID = 'driver-form'
+
+export default function DriverForm({ initial, error, onSubmit }: Props) {
   const [fullName, setFullName] = useState(initial?.full_name ?? '')
   const [phone, setPhone] = useState(initial?.phone ?? '')
 
@@ -28,17 +30,41 @@ export default function DriverForm({ initial, saving, error, onSubmit, onCancel 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+    <form id={DRIVER_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
+        </p>
+      )}
 
-      <FormField label="Full name">
-        <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputClass} />
-      </FormField>
-      <FormField label="Phone">
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} />
-      </FormField>
+      <Section title="Driver details">
+        <Field label="Full name" required>
+          <div className={`${fieldBase} border-black/10`}>
+            <UserRound size={18} className="shrink-0 text-gravel" />
+            <input
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Ravi Kumar"
+              autoFocus
+              className={inputBase}
+            />
+          </div>
+        </Field>
 
-      <FormButtons saving={saving} onCancel={onCancel} />
+        <Field label="Phone" optional>
+          <div className={`${fieldBase} border-black/10`}>
+            <Phone size={18} className="shrink-0 text-gravel" />
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              placeholder="98765 43210"
+              className={inputBase}
+            />
+          </div>
+        </Field>
+      </Section>
     </form>
   )
 }
