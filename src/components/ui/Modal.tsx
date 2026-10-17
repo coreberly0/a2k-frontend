@@ -4,19 +4,27 @@ import { createPortal } from 'react-dom'
 
 type Size = 'sm' | 'md' | 'lg' | 'xl'
 type Tone = 'default' | 'success' | 'info' | 'danger'
+type Placement = 'center' | 'right'
 
-const SIZES: Record<Size, string> = {
+const CENTER_SIZES: Record<Size, string> = {
   sm: 'sm:max-w-[420px]',
   md: 'sm:max-w-[560px]',
   lg: 'sm:max-w-[760px]',
   xl: 'sm:max-w-[980px]',
 }
 
+const DRAWER_SIZES: Record<Size, string> = {
+  sm: 'sm:max-w-[420px]',
+  md: 'sm:max-w-[520px]',
+  lg: 'sm:max-w-[640px]',
+  xl: 'sm:max-w-[820px]',
+}
+
 const TONES: Record<Tone, string> = {
-  default: 'bg-neutral-100 text-neutral-800',
-  success: 'bg-emerald-100 text-emerald-700',
-  info: 'bg-blue-100 text-blue-700',
-  danger: 'bg-red-100 text-red-600',
+  default: 'bg-paper text-ink',
+  success: 'bg-signal/20 text-ink',
+  info: 'bg-ink text-signal',
+  danger: 'bg-red-50 text-red-600',
 }
 
 interface ModalProps {
@@ -31,6 +39,8 @@ interface ModalProps {
   tone?: Tone
   footer?: ReactNode
   size?: Size
+  /** 'center' = popup in the middle (default), 'right' = side panel */
+  placement?: Placement
   closeOnBackdrop?: boolean
 }
 
@@ -44,13 +54,35 @@ export default function Modal({
   tone = 'default',
   footer,
   size = 'md',
+  placement = 'center',
   closeOnBackdrop = true,
 }: ModalProps) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
+  // slide-in animation for the right panel
+  const [shown, setShown] = useState(false)
+  const [settled, setSettled] = useState(false)
+
+  const isRight = placement === 'right'
 
   useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    if (!open) {
+      setShown(false)
+      setSettled(false)
+      return
+    }
+    const raf = requestAnimationFrame(() => setShown(true))
+    // once the slide finishes, drop the transform so the dropdown lists
+    // inside the form (position: fixed) measure against the screen correctly
+    const t = setTimeout(() => setSettled(true), 320)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(t)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -69,9 +101,19 @@ export default function Modal({
 
   if (!mounted || !open) return null
 
+  const overlayCls = isRight
+    ? 'fixed inset-0 z-[100] flex justify-end bg-ink/60 backdrop-blur-sm'
+    : 'fixed inset-0 z-[100] flex items-end justify-center bg-ink/60 p-0 backdrop-blur-sm sm:items-center sm:p-6'
+
+  const panelCls = isRight
+    ? `relative flex h-full w-full ${DRAWER_SIZES[size]} flex-col overflow-hidden bg-white shadow-2xl outline-none sm:rounded-l-2xl ${
+        settled ? '' : `transition-transform duration-300 ease-out ${shown ? 'translate-x-0' : 'translate-x-full'}`
+      }`
+    : `relative mx-auto flex max-h-[92vh] w-full ${CENTER_SIZES[size]} flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:rounded-2xl`
+
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      className={overlayCls}
       onMouseDown={(e) => {
         if (closeOnBackdrop && e.target === e.currentTarget) onClose()
       }}
@@ -82,20 +124,20 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative mx-auto flex max-h-[92vh] w-full ${SIZES[size]} flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:rounded-3xl`}
+        className={panelCls}
       >
         {/* Header */}
-        <div className="flex items-start gap-4 border-b border-neutral-100 px-6 py-5 pr-16">
+        <div className="flex items-start gap-4 border-b border-black/5 px-6 py-5 pr-16">
           {icon && (
-            <div className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${TONES[tone]}`}>
+            <div className={`grid size-11 shrink-0 place-items-center rounded-xl ${TONES[tone]}`}>
               {icon}
             </div>
           )}
           <div className="min-w-0">
-            <h2 id={titleId} className="text-lg font-semibold leading-tight text-neutral-900">
+            <h2 id={titleId} className="font-display text-2xl font-bold leading-tight text-ink">
               {title}
             </h2>
-            {description && <p className="mt-1 text-sm text-neutral-500">{description}</p>}
+            {description && <p className="mt-1 text-sm text-gravel">{description}</p>}
           </div>
         </div>
 
@@ -104,19 +146,19 @@ export default function Modal({
           type="button"
           aria-label="Close"
           onClick={onClose}
-          className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+          className="absolute right-4 top-4 grid size-9 place-items-center rounded-lg text-gravel transition hover:bg-black/5 hover:text-ink"
         >
-          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
 
         {/* Body */}
-        <div className="overflow-y-auto px-6 py-5 text-sm text-neutral-600">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 text-sm text-gravel">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4">{footer}</div>
+          <div className="flex border-t border-black/5 bg-paper/70 px-6 py-4">{footer}</div>
         )}
       </div>
     </div>,

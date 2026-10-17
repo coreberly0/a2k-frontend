@@ -1,6 +1,6 @@
 'use client'
 import Modal from '@/components/ui/Modal'
-import SaleForm from '@/components/sales/SaleForm'
+import SaleForm, { SaleFormActions } from '@/components/sales/SaleForm'
 
 const PlusIcon = (
   <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -25,16 +25,11 @@ export default function AddSale({ open, saving, error, onSubmit, onClose }: AddS
       icon={PlusIcon}
       tone="success"
       size="lg"
+      placement="right"
       onClose={onClose}
+      footer={<SaleFormActions saving={saving} onCancel={onClose} label="Add bill" />}
     >
-      <SaleForm
-        key="new"
-        initial={null}
-        saving={saving}
-        error={error}
-        onSubmit={onSubmit}
-        onCancel={onClose}
-      />
+      <SaleForm key="new" initial={null} saving={saving} error={error} onSubmit={onSubmit} />
     </Modal>
   )
 }

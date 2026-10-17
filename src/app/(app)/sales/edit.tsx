@@ -1,6 +1,6 @@
 'use client'
 import Modal from '@/components/ui/Modal'
-import SaleForm, { Sale } from '@/components/sales/SaleForm'
+import SaleForm, { Sale, SaleFormActions } from '@/components/sales/SaleForm'
 
 const PencilIcon = (
   <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -29,16 +29,11 @@ export default function EditSale({ open, sale, saving, error, onSubmit, onClose 
       icon={PencilIcon}
       tone="info"
       size="lg"
+      placement="right"
       onClose={onClose}
+      footer={<SaleFormActions saving={saving} onCancel={onClose} label="Save changes" />}
     >
-      <SaleForm
-        key={sale.id}
-        initial={sale}
-        saving={saving}
-        error={error}
-        onSubmit={onSubmit}
-        onCancel={onClose}
-      />
+      <SaleForm key={sale.id} initial={sale} saving={saving} error={error} onSubmit={onSubmit} />
     </Modal>
   )
 }
