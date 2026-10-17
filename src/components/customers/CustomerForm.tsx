@@ -1,5 +1,7 @@
 'use client'
 import { useState } from 'react'
+import { UserRound, Phone, Mail, MapPin } from 'lucide-react'
+import { Field, Section, fieldBase, inputBase } from '@/components/ui/formKit'
 
 export interface Customer {
   id: string
@@ -15,24 +17,22 @@ type Props = {
   saving: boolean
   error?: string | null
   onSubmit: (values: Partial<Customer>) => void
-  onCancel: () => void
 }
 
-const inputCls =
-  'w-full rounded-md border border-ink/15 bg-white px-3 py-2 text-sm outline-none ' +
-  'focus:border-steel focus:ring-2 focus:ring-steel/20'
+/** The panel footer buttons submit this form through its id. */
+export const CUSTOMER_FORM_ID = 'customer-form'
 
-export default function CustomerForm({ initial, saving, error, onSubmit, onCancel }: Props) {
+export default function CustomerForm({ initial, error, onSubmit }: Props) {
   const [name, setName] = useState(initial?.name ?? '')
   const [phone, setPhone] = useState(initial?.phone ?? '')
   const [email, setEmail] = useState(initial?.email ?? '')
   const [address, setAddress] = useState(initial?.address ?? '')
-  const [localError, setLocalError] = useState('')
+  const [nameError, setNameError] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim()) return setLocalError('Name is required')
-    setLocalError('')
+    if (!name.trim()) return setNameError('Name is required')
+    setNameError('')
     onSubmit({
       name: name.trim(),
       phone: phone.trim() || null,
@@ -41,54 +41,73 @@ export default function CustomerForm({ initial, saving, error, onSubmit, onCance
     })
   }
 
-  const shownError = localError || error
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {shownError && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {shownError}
+    <form id={CUSTOMER_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
         </p>
       )}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Name *</label>
-        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-      </div>
+      <Section title="Customer details">
+        <Field label="Name" required error={nameError}>
+          <div className={`${fieldBase} ${nameError ? 'border-red-300' : 'border-black/10'}`}>
+            <UserRound size={18} className="shrink-0 text-gravel" />
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                setNameError('')
+              }}
+              placeholder="e.g. Sri Murugan Traders"
+              autoFocus
+              className={inputBase}
+            />
+          </div>
+        </Field>
+      </Section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium">Phone</label>
-          <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" />
+      <Section title="Contact">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Phone" optional>
+            <div className={`${fieldBase} border-black/10`}>
+              <Phone size={18} className="shrink-0 text-gravel" />
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+                placeholder="98765 43210"
+                className={inputBase}
+              />
+            </div>
+          </Field>
+          <Field label="Email" optional>
+            <div className={`${fieldBase} border-black/10`}>
+              <Mail size={18} className="shrink-0 text-gravel" />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@company.com"
+                className={inputBase}
+              />
+            </div>
+          </Field>
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium">Email</label>
-          <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-      </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Address</label>
-        <textarea className={inputCls} rows={3} value={address} onChange={(e) => setAddress(e.target.value)} />
-      </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className="rounded-md border border-ink/15 px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-steel px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : initial ? 'Update' : 'Save'}
-        </button>
-      </div>
+        <Field label="Address" optional>
+          <div className={`${fieldBase} items-start border-black/10`}>
+            <MapPin size={18} className="mt-3.5 shrink-0 text-gravel" />
+            <textarea
+              rows={3}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Street, city, pincode"
+              className={`${inputBase} resize-none`}
+            />
+          </div>
+        </Field>
+      </Section>
     </form>
   )
 }
