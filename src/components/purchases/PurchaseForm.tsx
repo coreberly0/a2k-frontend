@@ -1,10 +1,9 @@
 'use client'
 import { useState, FormEvent } from 'react'
-import FormField, { inputClass } from '@/components/ui/FormField'
-import SelectField from '@/components/ui/SelectField'
-import FormButtons from '@/components/ui/FormButtons'
+import { CalendarDays, Store, Boxes, Truck, Package, IndianRupee } from 'lucide-react'
 import { useOptions } from '@/hooks/useOptions'
 import { money, todayStr } from '@/lib/format'
+import { Field, Section, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
 
 export type Purchase = {
   id: string
@@ -26,10 +25,12 @@ type Props = {
   saving: boolean
   error: string
   onSubmit: (values: Record<string, unknown>) => void
-  onCancel: () => void
 }
 
-export default function PurchaseForm({ initial, saving, error, onSubmit, onCancel }: Props) {
+/** The panel footer buttons submit this form through its id. */
+export const PURCHASE_FORM_ID = 'purchase-form'
+
+export default function PurchaseForm({ initial, saving, error, onSubmit }: Props) {
   const vendors = useOptions('/vendors', (r) => r.name)
   const materials = useOptions('/materials', (r) => r.name)
   const vehicles = useOptions('/vehicles', (r) => r.plate_number)
@@ -41,11 +42,20 @@ export default function PurchaseForm({ initial, saving, error, onSubmit, onCance
   const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : '')
   const [rate, setRate] = useState(initial ? String(initial.rate) : '')
   const [payment, setPayment] = useState(initial?.payment ?? '')
+  const [errs, setErrs] = useState<{ vendor?: string; material?: string }>({})
 
   const total = Number(quantity || 0) * Number(rate || 0)
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+
+    // the dropdowns are not native inputs, so check required ones here
+    const next: typeof errs = {}
+    if (!vendorId) next.vendor = 'Please select a vendor'
+    if (!materialId) next.material = 'Please select a material'
+    setErrs(next)
+    if (next.vendor || next.material) return
+
     const body: Record<string, unknown> = {
       purchase_date: date,
       vendor_id: vendorId,
@@ -59,46 +69,149 @@ export default function PurchaseForm({ initial, saving, error, onSubmit, onCance
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
-
-      <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-        <FormField label="Date">
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
-        </FormField>
-
-        <SelectField label="Vendor" required value={vendorId} onChange={setVendorId}
-          options={vendors.options} failed={vendors.failed} />
-        <SelectField label="Material" required value={materialId} onChange={setMaterialId}
-          options={materials.options} failed={materials.failed} />
-        <SelectField label="Vehicle" value={vehicleId} onChange={setVehicleId}
-          options={vehicles.options} failed={vehicles.failed} />
-
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Quantity">
-            <input type="number" step="any" min="0" required value={quantity}
-              onChange={(e) => setQuantity(e.target.value)} className={inputClass} />
-          </FormField>
-          <FormField label="Rate">
-            <input type="number" step="any" min="0" required value={rate}
-              onChange={(e) => setRate(e.target.value)} className={inputClass} />
-          </FormField>
-        </div>
-
-        <FormField label="Payment">
-          <select value={payment} onChange={(e) => setPayment(e.target.value)} className={inputClass}>
-            <option value="">-- Select --</option>
-            <option value="paid">Paid</option>
-            <option value="unpaid">Unpaid</option>
-          </select>
-        </FormField>
-
-        <p className="text-sm">
-          Total: <span className="font-bold">{money(total)}</span>
+    <form id={PURCHASE_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
         </p>
-      </div>
+      )}
 
-      <FormButtons saving={saving} onCancel={onCancel} />
+      <Section title="Purchase details">
+        <Field label="Date" required>
+          <div className={`${fieldBase} border-black/10`}>
+            <CalendarDays size={18} className="shrink-0 text-gravel" />
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={inputBase}
+            />
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Vendor and material">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Dropdown
+            label="Vendor"
+            icon={Store}
+            required
+            value={vendorId}
+            onChange={(v) => {
+              setVendorId(v)
+              setErrs((x) => ({ ...x, vendor: undefined }))
+            }}
+            options={normalize(vendors.options)}
+            failed={vendors.failed}
+            error={errs.vendor}
+          />
+          <Dropdown
+            label="Material"
+            icon={Boxes}
+            required
+            value={materialId}
+            onChange={(v) => {
+              setMaterialId(v)
+              setErrs((x) => ({ ...x, material: undefined }))
+            }}
+            options={normalize(materials.options)}
+            failed={materials.failed}
+            error={errs.material}
+          />
+        </div>
+      </Section>
+
+      <Section title="Transport">
+        <Dropdown
+          label="Vehicle"
+          icon={Truck}
+          value={vehicleId}
+          onChange={setVehicleId}
+          options={normalize(vehicles.options)}
+          failed={vehicles.failed}
+        />
+      </Section>
+
+      <Section title="Pricing">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Quantity" required>
+            <div className={`${fieldBase} border-black/10`}>
+              <Package size={18} className="shrink-0 text-gravel" />
+              <input
+                type="number"
+                step="any"
+                min="0"
+                required
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="0"
+                className={inputBase}
+              />
+            </div>
+          </Field>
+          <Field label="Rate" required>
+            <div className={`${fieldBase} border-black/10`}>
+              <IndianRupee size={18} className="shrink-0 text-gravel" />
+              <input
+                type="number"
+                step="any"
+                min="0"
+                required
+                value={rate}
+                onChange={(e) => setRate(e.target.value)}
+                placeholder="0.00"
+                className={inputBase}
+              />
+            </div>
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Payment">
+        <Field label="Payment status" optional>
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-black/10 bg-paper/60 p-1">
+            {[
+              { v: 'paid', label: 'Paid', on: 'bg-green-600 text-white' },
+              { v: 'unpaid', label: 'Unpaid', on: 'bg-amber-500 text-white' },
+            ].map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                aria-pressed={payment === o.v}
+                // click again to clear, since payment is optional
+                onClick={() => setPayment(payment === o.v ? '' : o.v)}
+                className={`rounded-lg py-2.5 text-sm font-semibold transition ${
+                  payment === o.v ? `${o.on} shadow` : 'text-gravel hover:bg-black/5 hover:text-ink'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </Section>
+
+      {/* purchase summary */}
+      <div className="overflow-hidden rounded-2xl bg-ink text-paper">
+        <div className="space-y-2 px-5 pt-4 text-sm">
+          <div className="flex justify-between text-gravel">
+            <span>
+              Subtotal
+              {Number(quantity) > 0 && Number(rate) > 0 && (
+                <span className="ml-2 text-xs text-gravel/70">
+                  {quantity} × {money(Number(rate))}
+                </span>
+              )}
+            </span>
+            <span className="tabular-nums text-paper">{money(total)}</span>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between border-t border-white/10 px-5 py-4">
+          <span className="text-sm font-medium">Total amount</span>
+          <span className="font-display text-3xl font-bold tabular-nums text-signal">{money(total)}</span>
+        </div>
+      </div>
     </form>
   )
 }
