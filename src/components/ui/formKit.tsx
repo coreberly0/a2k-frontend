@@ -99,6 +99,7 @@ export function Dropdown({
   onChange,
   options,
   failed,
+  loading,
   required,
   error,
 }: {
@@ -108,6 +109,7 @@ export function Dropdown({
   onChange: (v: string) => void
   options: Opt[]
   failed?: boolean
+  loading?: boolean
   required?: boolean
   error?: string
 }) {
@@ -187,7 +189,7 @@ export function Dropdown({
         >
           <Icon size={18} className="shrink-0 text-gravel" />
           <span className={`flex-1 truncate text-base ${current ? 'text-ink' : 'text-gravel/60'}`}>
-            {current ? current.label : 'Select'}
+            {current ? current.label : loading ? 'Loading…' : 'Select'}
           </span>
           <ChevronDown
             size={18}
@@ -231,7 +233,13 @@ export function Dropdown({
 
               {shown.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-gravel">
-                  {failed ? "Couldn't load this list" : options.length === 0 ? 'Nothing to choose yet' : 'No match'}
+                  {loading
+                    ? 'Loading…'
+                    : failed
+                      ? "Couldn't load this list"
+                      : options.length === 0
+                        ? 'Nothing to choose yet'
+                        : 'No match'}
                 </p>
               ) : (
                 shown.map((o) => {

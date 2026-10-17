@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { FileText, X } from 'lucide-react'
+import { FileText, UploadCloud, X } from 'lucide-react'
+import { fmtSize } from './FileRow'
 
 export const MAX_FILES = 5
 export const MAX_SIZE = 5 * 1024 * 1024
@@ -25,6 +26,7 @@ export default function FilePicker({ files, onChange, maxFiles = MAX_FILES, disa
   const inputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState('')
   const [previews, setPreviews] = useState<(string | null)[]>([])
+  const [dragging, setDragging] = useState(false)
 
   // Create and clean up preview URLs inside the effect so React strict mode cannot break them
   useEffect(() => {
@@ -66,15 +68,35 @@ export default function FilePicker({ files, onChange, maxFiles = MAX_FILES, disa
   }
 
   return (
-    <div className="space-y-2">
-      <label className="block text-sm">Attachments (image or PDF)</label>
-
+    <div className="space-y-3">
       <label
-        className={`inline-block px-3 py-2 rounded border text-sm bg-white ${
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!disabled) setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          if (!disabled) handlePick(e.dataTransfer.files)
+        }}
+        className={`flex flex-col items-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition ${
+          disabled
+            ? 'cursor-not-allowed border-black/10 opacity-50'
+            : dragging
+              ? 'cursor-pointer border-signal bg-signal/10'
+              : 'cursor-pointer border-black/15 bg-paper/60 hover:border-signal hover:bg-signal/5'
         }`}
       >
-        Choose files
+        <span className="grid size-11 place-items-center rounded-full bg-signal/20 text-ink">
+          <UploadCloud size={22} />
+        </span>
+        <p className="text-sm font-medium text-ink">
+          Click to upload <span className="font-normal text-gravel">or drag and drop</span>
+        </p>
+        <p className="text-xs text-gravel">
+          JPG, PNG, WEBP or PDF. Up to {maxFiles} files, 5 MB each.
+        </p>
         <input
           ref={inputRef}
           type="file"
@@ -85,31 +107,37 @@ export default function FilePicker({ files, onChange, maxFiles = MAX_FILES, disa
           className="hidden"
         />
       </label>
-      <span className="text-xs text-gray-500 ml-2">Up to {maxFiles} files, 5 MB each</span>
 
-      {message && <p className="text-red-600 text-xs">{message}</p>}
+      {message && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {message}
+        </p>
+      )}
 
       {files.length > 0 && (
-        <ul className="divide-y border rounded">
+        <ul className="divide-y divide-black/5 overflow-hidden rounded-xl border border-black/10 bg-white">
           {files.map((f, i) => (
-            <li key={`${f.name}-${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <li key={`${f.name}-${i}`} className="flex items-center gap-3 px-3.5 py-3">
               {previews[i] ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={previews[i]!} alt="" className="h-10 w-10 rounded object-cover" />
+                <img src={previews[i]!} alt="" className="size-10 shrink-0 rounded-lg object-cover" />
               ) : (
-                <FileText size={28} className="text-gray-500" />
+                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-red-50 text-red-600">
+                  <FileText size={20} />
+                </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate">{f.name}</p>
-                <p className="text-xs text-gray-500">{Math.ceil(f.size / 1024)} KB</p>
+                <p className="truncate text-sm font-medium text-ink">{f.name}</p>
+                <p className="text-xs text-gravel">{fmtSize(f.size)}</p>
               </div>
               <button
                 type="button"
                 onClick={() => remove(i)}
-                aria-label="Remove file"
-                className="text-red-600"
+                disabled={disabled}
+                aria-label={`Remove ${f.name}`}
+                className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600"
               >
-                <X size={16} />
+                <X size={17} />
               </button>
             </li>
           ))}

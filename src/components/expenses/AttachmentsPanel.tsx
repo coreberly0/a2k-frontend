@@ -1,16 +1,9 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Trash2, ExternalLink } from 'lucide-react'
+import { Loader2, Paperclip, Upload } from 'lucide-react'
 import { api } from '@/lib/api'
 import FilePicker from './FilePicker'
-
-type Attachment = {
-  id: string
-  file_name: string
-  file_type: string
-  file_size: number
-  url: string | null
-}
+import FileRow, { Attachment } from './FileRow'
 
 export default function AttachmentsPanel({
   expenseId,
@@ -61,7 +54,6 @@ export default function AttachmentsPanel({
   }
 
   async function handleDelete(a: Attachment) {
-    if (!window.confirm(`Delete "${a.file_name}"?`)) return
     try {
       await api(`/expenses/${expenseId}/attachments/${a.id}`, { method: 'DELETE' })
       await load()
@@ -71,60 +63,61 @@ export default function AttachmentsPanel({
   }
 
   return (
-    <div className="space-y-4">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
-
-      {loading ? (
-        <p className="text-gray-500 text-sm">Loading...</p>
-      ) : items.length === 0 ? (
-        <p className="text-gray-500 text-sm">No files yet</p>
-      ) : (
-        <ul className="divide-y border rounded">
-          {items.map((a) => (
-            <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="truncate">{a.file_name}</p>
-                <p className="text-gray-500 text-xs">{Math.ceil(a.file_size / 1024)} KB</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {a.url && (
-                  <a
-                    href={a.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Open"
-                    className="text-blue-600"
-                  >
-                    <ExternalLink size={16} />
-                  </a>
-                )}
-                {admin && (
-                  <button
-                    onClick={() => handleDelete(a)}
-                    aria-label="Delete"
-                    className="text-red-600"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+    <div className="space-y-7 text-ink">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
+        </p>
       )}
 
-      <div className="border-t pt-4 space-y-3">
-        <p className="text-sm font-medium">Add files</p>
+      <section className="space-y-3">
+        <h3 className="flex items-center gap-3 text-sm font-semibold text-ink">
+          Attached files
+          {!loading && (
+            <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs font-medium text-gravel">
+              {items.length}
+            </span>
+          )}
+          <span className="h-px flex-1 bg-black/5" />
+        </h3>
+
+        {loading ? (
+          <div className="flex justify-center rounded-xl border border-black/10 bg-paper/60 py-8 text-gravel">
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-black/10 bg-paper/60 px-4 py-8 text-center">
+            <span className="mx-auto mb-2 grid size-11 place-items-center rounded-full bg-white text-gravel">
+              <Paperclip size={20} />
+            </span>
+            <p className="text-sm font-medium text-ink">No files yet</p>
+            <p className="mt-0.5 text-xs text-gravel">Add bills or receipts below.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-black/5 overflow-hidden rounded-xl border border-black/10 bg-white">
+            {items.map((a) => (
+              <FileRow key={a.id} a={a} canDelete={admin} onDelete={handleDelete} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="flex items-center gap-3 text-sm font-semibold text-ink">
+          Add files
+          <span className="h-px flex-1 bg-black/5" />
+        </h3>
         <FilePicker files={picked} onChange={setPicked} disabled={uploading} />
         <button
           type="button"
           onClick={handleUpload}
           disabled={uploading || picked.length === 0}
-          className="px-4 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-signal py-3 font-semibold text-ink shadow-lg shadow-signal/30 transition hover:brightness-95 active:scale-[0.99] disabled:opacity-50 disabled:shadow-none"
         >
-          {uploading ? 'Uploading...' : picked.length ? `Upload ${picked.length}` : 'Upload'}
+          {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+          {uploading ? 'Uploading…' : picked.length ? `Upload ${picked.length} file${picked.length > 1 ? 's' : ''}` : 'Upload'}
         </button>
-      </div>
+      </section>
     </div>
   )
 }

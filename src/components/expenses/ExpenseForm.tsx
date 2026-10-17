@@ -1,5 +1,7 @@
 'use client'
 import { useState, FormEvent } from 'react'
+import { CalendarDays, Contact, IndianRupee, Store, Tag, Truck } from 'lucide-react'
+import { Field, Section, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
 import FilePicker from './FilePicker'
 import ExistingFiles from './ExistingFiles'
 
@@ -39,54 +41,13 @@ type Props = {
   lookupsLoading: boolean
   failedLookups: string[] // e.g. ['/vehicles', '/drivers']
   onSubmit: (values: ExpenseValues, files: File[]) => void
-  onCancel: () => void
 }
+
+/** The panel footer buttons submit this form through its id. */
+export const EXPENSE_FORM_ID = 'expense-form'
 
 function todayStr() {
   return new Date().toLocaleDateString('en-CA') // yyyy-mm-dd in local time
-}
-
-function SelectField({
-  label,
-  plural,
-  value,
-  onChange,
-  options,
-  loading,
-  failed,
-}: {
-  label: string
-  plural: string
-  value: string
-  onChange: (v: string) => void
-  options: Option[]
-  loading: boolean
-  failed: boolean
-}) {
-  const showMessage = !loading && options.length === 0
-  return (
-    <div>
-      <label className="block text-sm mb-1">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={loading}
-        className="w-full border rounded px-3 py-2 bg-white disabled:bg-gray-100"
-      >
-        <option value="">{loading ? 'Loading...' : '-- None --'}</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {showMessage && (
-        <p className={`text-xs mt-1 ${failed ? 'text-red-600' : 'text-gray-500'}`}>
-          {failed ? `Could not load ${plural}. Check your connection.` : `No ${plural} found`}
-        </p>
-      )}
-    </div>
-  )
 }
 
 export default function ExpenseForm({
@@ -95,12 +56,10 @@ export default function ExpenseForm({
   vehicles,
   drivers,
   vendors,
-  saving,
   error,
   lookupsLoading,
   failedLookups,
   onSubmit,
-  onCancel,
 }: Props) {
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
   const [date, setDate] = useState(initial?.expense_date?.slice(0, 10) ?? todayStr())
@@ -126,90 +85,101 @@ export default function ExpenseForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+    <form id={EXPENSE_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
+        </p>
+      )}
 
-      <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm mb-1">Amount</label>
-            <input
-              type="number"
-              required
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Date</label>
-            <input
-              type="date"
-              required
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
+      <Section title="Expense details">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Amount" required>
+            <div className={`${fieldBase} border-black/10`}>
+              <IndianRupee size={18} className="shrink-0 text-gravel" />
+              <input
+                type="number"
+                required
+                min="0.01"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className={inputBase}
+              />
+            </div>
+          </Field>
+          <Field label="Date" required>
+            <div className={`${fieldBase} border-black/10`}>
+              <CalendarDays size={18} className="shrink-0 text-gravel" />
+              <input
+                type="date"
+                required
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className={inputBase}
+              />
+            </div>
+          </Field>
         </div>
+      </Section>
 
-        <SelectField
-          label="Category"
-          plural="categories"
-          value={categoryId}
-          onChange={setCategoryId}
-          options={categories}
-          loading={lookupsLoading}
-          failed={failedLookups.includes('/expense-categories')}
-        />
-        <SelectField
-          label="Vehicle"
-          plural="vehicles"
-          value={vehicleId}
-          onChange={setVehicleId}
-          options={vehicles}
-          loading={lookupsLoading}
-          failed={failedLookups.includes('/vehicles')}
-        />
-        <SelectField
-          label="Driver"
-          plural="drivers"
-          value={driverId}
-          onChange={setDriverId}
-          options={drivers}
-          loading={lookupsLoading}
-          failed={failedLookups.includes('/drivers')}
-        />
-        <SelectField
-          label="Vendor"
-          plural="vendors"
-          value={vendorId}
-          onChange={setVendorId}
-          options={vendors}
-          loading={lookupsLoading}
-          failed={failedLookups.includes('/vendors')}
-        />
+      <Section title="Category and vendor">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Dropdown
+            label="Category"
+            icon={Tag}
+            value={categoryId}
+            onChange={setCategoryId}
+            options={normalize(categories)}
+            loading={lookupsLoading}
+            failed={failedLookups.includes('/expense-categories')}
+          />
+          <Dropdown
+            label="Vendor"
+            icon={Store}
+            value={vendorId}
+            onChange={setVendorId}
+            options={normalize(vendors)}
+            loading={lookupsLoading}
+            failed={failedLookups.includes('/vendors')}
+          />
+        </div>
+      </Section>
 
-        {/* Edit mode: show files that are already saved on this expense */}
+      <Section title="Vehicle and driver">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Dropdown
+            label="Vehicle"
+            icon={Truck}
+            value={vehicleId}
+            onChange={setVehicleId}
+            options={normalize(vehicles)}
+            loading={lookupsLoading}
+            failed={failedLookups.includes('/vehicles')}
+          />
+          <Dropdown
+            label="Driver"
+            icon={Contact}
+            value={driverId}
+            onChange={setDriverId}
+            options={normalize(drivers)}
+            loading={lookupsLoading}
+            failed={failedLookups.includes('/drivers')}
+          />
+        </div>
+      </Section>
+
+      <Section title="Attachments">
+        {/* Edit mode: files already saved on this expense */}
         {initial && <ExistingFiles expenseId={initial.id} />}
 
-        {/* New files to upload when you press Save */}
-        <FilePicker files={files} onChange={setFiles} />
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className="px-4 py-2 rounded border text-sm">
-          Cancel
-        </button>
-        <button
-          disabled={saving}
-          className="px-4 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </button>
-      </div>
+        {/* New files, uploaded when you press save */}
+        <div className="space-y-2">
+          {initial && <p className="text-sm font-medium text-ink">Add new files</p>}
+          <FilePicker files={files} onChange={setFiles} />
+        </div>
+      </Section>
     </form>
   )
 }

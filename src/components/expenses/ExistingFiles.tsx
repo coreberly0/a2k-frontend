@@ -1,15 +1,9 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { getUser, isAdmin } from '@/lib/auth'
-
-type Attachment = {
-  id: string
-  file_name: string
-  file_size: number
-  url: string | null
-}
+import FileRow, { Attachment } from './FileRow'
 
 export default function ExistingFiles({ expenseId }: { expenseId: string }) {
   const [items, setItems] = useState<Attachment[]>([])
@@ -34,7 +28,6 @@ export default function ExistingFiles({ expenseId }: { expenseId: string }) {
   }, [load])
 
   async function handleDelete(a: Attachment) {
-    if (!window.confirm(`Delete "${a.file_name}"?`)) return
     try {
       await api(`/expenses/${expenseId}/attachments/${a.id}`, { method: 'DELETE' })
       await load()
@@ -45,46 +38,26 @@ export default function ExistingFiles({ expenseId }: { expenseId: string }) {
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm">Files already attached</label>
+      <p className="text-sm font-medium text-ink">Already attached</p>
 
-      {error && <p className="text-red-600 text-xs">{error}</p>}
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </p>
+      )}
 
       {loading ? (
-        <p className="text-gray-500 text-xs">Loading...</p>
+        <div className="flex justify-center rounded-xl border border-black/10 bg-paper/60 py-5 text-gravel">
+          <Loader2 size={18} className="animate-spin" />
+        </div>
       ) : items.length === 0 ? (
-        <p className="text-gray-500 text-xs">No files attached yet</p>
+        <p className="rounded-xl border border-dashed border-black/10 bg-paper/60 px-4 py-4 text-center text-xs text-gravel">
+          No files attached yet
+        </p>
       ) : (
-        <ul className="divide-y border rounded">
+        <ul className="divide-y divide-black/5 overflow-hidden rounded-xl border border-black/10 bg-white">
           {items.map((a) => (
-            <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="truncate">{a.file_name}</p>
-                <p className="text-gray-500 text-xs">{Math.ceil(a.file_size / 1024)} KB</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {a.url && (
-                  <a
-                    href={a.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Open"
-                    className="text-blue-600"
-                  >
-                    <ExternalLink size={16} />
-                  </a>
-                )}
-                {admin && (
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(a)}
-                    aria-label="Delete"
-                    className="text-red-600"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            </li>
+            <FileRow key={a.id} a={a} canDelete={admin} onDelete={handleDelete} />
           ))}
         </ul>
       )}
