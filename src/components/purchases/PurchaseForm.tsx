@@ -1,9 +1,11 @@
 'use client'
 import { useState, FormEvent } from 'react'
-import { CalendarDays, Store, Boxes, Truck, Package, IndianRupee } from 'lucide-react'
+import { CalendarDays, Store, Boxes, Truck, Package, IndianRupee, StickyNote } from 'lucide-react'
 import { useOptions } from '@/hooks/useOptions'
 import { money, todayStr } from '@/lib/format'
 import { Field, Section, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
+import BillField from '@/components/purchases/Billfield'
+import { openBill } from '@/lib/billApi'
 
 export type Purchase = {
   id: string
@@ -15,16 +17,21 @@ export type Purchase = {
   rate: number | string
   payment: string | null
   total_amount: number | string
+  notes?: string | null
+  bill_name?: string | null
   vendor?: { name: string } | null
   material?: { name: string } | null
   vehicle?: { plate_number: string } | null
 }
 
+/** What the user did with the bill copy in this form. */
+export type BillChange = { file: File | null; remove: boolean }
+
 type Props = {
   initial?: Purchase | null
   saving: boolean
   error: string
-  onSubmit: (values: Record<string, unknown>) => void
+  onSubmit: (values: Record<string, unknown>, bill: BillChange) => void
 }
 
 /** The panel footer buttons submit this form through its id. */
@@ -42,9 +49,23 @@ export default function PurchaseForm({ initial, saving, error, onSubmit }: Props
   const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : '')
   const [rate, setRate] = useState(initial ? String(initial.rate) : '')
   const [payment, setPayment] = useState(initial?.payment ?? '')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [billFile, setBillFile] = useState<File | null>(null)
+  const [billRemoved, setBillRemoved] = useState(false)
+  const [viewError, setViewError] = useState('')
   const [errs, setErrs] = useState<{ vendor?: string; material?: string }>({})
 
   const total = Number(quantity || 0) * Number(rate || 0)
+
+  async function viewBill() {
+    if (!initial) return
+    setViewError('')
+    try {
+      await openBill(initial.id)
+    } catch (e: any) {
+      setViewError(e?.message || 'Could not open the bill')
+    }
+  }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -63,16 +84,17 @@ export default function PurchaseForm({ initial, saving, error, onSubmit }: Props
       vehicle_id: vehicleId || null,
       quantity: Number(quantity),
       rate: Number(rate),
+      notes: notes.trim() || null, // always sent, so clearing the box clears the note
     }
     if (payment) body.payment = payment
-    onSubmit(body)
+    onSubmit(body, { file: billFile, remove: billRemoved && !billFile })
   }
 
   return (
     <form id={PURCHASE_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
-      {error && (
+      {(error || viewError) && (
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-          {error}
+          {error || viewError}
         </p>
       )}
 
@@ -188,6 +210,34 @@ export default function PurchaseForm({ initial, saving, error, onSubmit }: Props
                 {o.label}
               </button>
             ))}
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Bill and notes">
+        <BillField
+          file={billFile}
+          onFileChange={(f) => {
+            setBillFile(f)
+            if (f) setBillRemoved(false)
+          }}
+          existingName={initial?.bill_name}
+          onViewExisting={viewBill}
+          onRemoveExisting={() => setBillRemoved(true)}
+          removed={billRemoved}
+          disabled={saving}
+        />
+
+        <Field label="Notes" optional>
+          <div className={`${fieldBase} items-start border-black/10`}>
+            <StickyNote size={18} className="mt-3.5 shrink-0 text-gravel" />
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Bill number, delivery remarks, anything to remember"
+              className={`${inputBase} resize-none`}
+            />
           </div>
         </Field>
       </Section>

@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X,
-  ShoppingCart, IndianRupee, Package, CalendarDays,
+  ShoppingCart, IndianRupee, Package, CalendarDays, Paperclip,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
 import Modal from '@/components/ui/Modal'
-import PurchaseForm, { Purchase, PURCHASE_FORM_ID } from '@/components/purchases/PurchaseForm'
+import PurchaseForm, { Purchase, BillChange, PURCHASE_FORM_ID } from '@/components/purchases/PurchaseForm'
 import { FormActions } from '@/components/ui/formKit'
 import { money } from '@/lib/format'
+import { uploadBill, removeBill, openBill } from '@/lib/billApi'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -46,6 +47,7 @@ export default function PurchasesPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [search, setSearch] = useState('')
+  const [billError, setBillError] = useState('')
 
   const query = useMemo(() => {
     const qs = new URLSearchParams()
@@ -71,7 +73,7 @@ export default function PurchasesPage() {
     const q = search.trim().toLowerCase()
     if (!q) return r.rows
     return r.rows.filter((p) =>
-      [p.vendor?.name, p.material?.name, p.vehicle?.plate_number, p.payment].some((v) =>
+      [p.vendor?.name, p.material?.name, p.vehicle?.plate_number, p.payment, p.notes].some((v) =>
         String(v ?? '').toLowerCase().includes(q)
       )
     )
@@ -94,6 +96,23 @@ export default function PurchasesPage() {
     setFrom('')
     setTo('')
     setSearch('')
+  }
+
+  // save the purchase first, then upload / remove the bill using the saved row's id
+  function handleSave(values: Record<string, unknown>, bill: BillChange) {
+    return r.save(values, async (saved: Purchase) => {
+      if (bill.file) await uploadBill(saved.id, bill.file)
+      else if (bill.remove) await removeBill(saved.id)
+    })
+  }
+
+  async function viewBill(id: string) {
+    setBillError('')
+    try {
+      await openBill(id)
+    } catch (e: any) {
+      setBillError(e?.message || 'Could not open the bill')
+    }
   }
 
   const dateWrap =
@@ -149,9 +168,9 @@ export default function PurchasesPage() {
         </div>
       </div>
 
-      {r.error && (
+      {(r.error || billError) && (
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-          {r.error}
+          {r.error || billError}
         </p>
       )}
 
@@ -164,7 +183,7 @@ export default function PurchasesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search vendor, material, vehicle"
+              placeholder="Search vendor, material, vehicle, notes"
               className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
             />
           </div>
@@ -192,7 +211,7 @@ export default function PurchasesPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="bg-paper/70 text-xs font-semibold text-gravel">
               <tr>
                 <th className="w-16 px-4 py-3">S.No</th>
@@ -204,6 +223,7 @@ export default function PurchasesPage() {
                 <th className="px-4 py-3 text-right">Rate</th>
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3">Payment</th>
+                <th className="px-4 py-3 text-center">Bill</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -211,13 +231,13 @@ export default function PurchasesPage() {
             <tbody className="divide-y divide-black/5">
               {r.loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-14 text-center text-gravel">
+                  <td colSpan={11} className="px-4 py-14 text-center text-gravel">
                     <Loader2 className="mx-auto animate-spin" size={22} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-14 text-center">
+                  <td colSpan={11} className="px-4 py-14 text-center">
                     <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-paper text-gravel">
                       <ShoppingCart size={22} />
                     </span>
@@ -236,7 +256,14 @@ export default function PurchasesPage() {
                   <tr key={p.id} className="transition hover:bg-paper/50">
                     <td className="px-4 py-3.5 font-medium text-gravel">{i + 1}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{fmtDate(p.purchase_date)}</td>
-                    <td className="px-4 py-3.5 font-medium text-ink">{p.vendor?.name || '-'}</td>
+                    <td className="px-4 py-3.5">
+                      <p className="font-medium text-ink">{p.vendor?.name || '-'}</p>
+                      {p.notes && (
+                        <p className="mt-0.5 max-w-[220px] truncate text-xs text-gravel" title={p.notes}>
+                          {p.notes}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5 text-ink">{p.material?.name || '-'}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{p.vehicle?.plate_number || '-'}</td>
                     <td className="px-4 py-3.5 text-right tabular-nums text-ink">{p.quantity}</td>
@@ -250,6 +277,20 @@ export default function PurchasesPage() {
                       >
                         {p.payment || '-'}
                       </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      {p.bill_name ? (
+                        <button
+                          onClick={() => viewBill(p.id)}
+                          title={`View bill: ${p.bill_name}`}
+                          aria-label="View bill"
+                          className="rounded-lg p-2 text-ink transition hover:bg-signal/20"
+                        >
+                          <Paperclip size={17} />
+                        </button>
+                      ) : (
+                        <span className="text-gravel">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-1">
@@ -287,7 +328,7 @@ export default function PurchasesPage() {
                   <td className="px-4 py-3.5 text-right tabular-nums">{totals.qty.toLocaleString('en-IN')}</td>
                   <td />
                   <td className="px-4 py-3.5 text-right tabular-nums">{money(totals.amount)}</td>
-                  <td colSpan={2} />
+                  <td colSpan={3} />
                 </tr>
               </tfoot>
             )}
@@ -319,7 +360,7 @@ export default function PurchasesPage() {
           initial={r.editing}
           saving={r.saving}
           error={r.formError}
-          onSubmit={r.save}
+          onSubmit={handleSave}
         />
       </Modal>
 
@@ -346,6 +387,7 @@ export default function PurchasesPage() {
                 ) : (
                   'This purchase will be removed.'
                 )}{' '}
+                {r.deleting.bill_name && 'Its bill copy will be deleted too. '}
                 This can&apos;t be undone.
               </p>
             </div>
