@@ -1,8 +1,9 @@
 'use client'
+// app/customers/page.tsx
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X,
-  Users, Phone, Mail,
+  Users, Phone, FileText,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
 import Modal from '@/components/ui/Modal'
@@ -12,6 +13,16 @@ import CustomerForm, { Customer, CUSTOMER_FORM_ID } from '@/components/customers
 function initials(name: string) {
   const parts = name.trim().split(/\s+/)
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?'
+}
+
+// "Chennai, Tamil Nadu, India"
+function location(c: Customer) {
+  return [c.city, c.state, c.country].filter(Boolean).join(', ')
+}
+
+// full address for tooltip
+function fullAddress(c: Customer) {
+  return [c.address, location(c), c.pincode].filter(Boolean).join(', ')
 }
 
 export default function CustomersPage() {
@@ -31,12 +42,13 @@ export default function CustomersPage() {
     const q = search.trim().toLowerCase()
     if (!q) return r.rows
     return r.rows.filter((c) =>
-      [c.name, c.phone, c.email, c.address].some((v) => v?.toLowerCase().includes(q))
+      [c.name, c.phone, c.email, c.gstin, c.address, c.city, c.state, c.country, c.pincode]
+        .some((v) => v?.toLowerCase().includes(q))
     )
   }, [r.rows, search])
 
   const withPhone = r.rows.filter((c) => c.phone).length
-  const withEmail = r.rows.filter((c) => c.email).length
+  const withGstin = r.rows.filter((c) => c.gstin).length
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
@@ -76,11 +88,11 @@ export default function CustomersPage() {
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-signal/20 text-ink">
-            <Mail size={22} />
+            <FileText size={22} />
           </span>
           <div>
-            <p className="text-2xl font-bold leading-none text-ink">{withEmail}</p>
-            <p className="mt-1 text-xs text-gravel">With email</p>
+            <p className="text-2xl font-bold leading-none text-ink">{withGstin}</p>
+            <p className="mt-1 text-xs text-gravel">With GSTIN</p>
           </div>
         </div>
       </div>
@@ -99,7 +111,7 @@ export default function CustomersPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, phone, email or address"
+              placeholder="Search name, phone, GSTIN, city or state"
               className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
             />
           </div>
@@ -114,13 +126,13 @@ export default function CustomersPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-paper/70 text-xs font-semibold text-gravel">
               <tr>
                 <th className="w-16 px-4 py-3">S.No</th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">GSTIN</th>
                 <th className="px-4 py-3">Address</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -143,7 +155,7 @@ export default function CustomersPage() {
                       {search ? 'No customers match your search' : 'No customers yet'}
                     </p>
                     <p className="mt-1 text-sm text-gravel">
-                      {search ? 'Try a different name, phone or email.' : 'Click “Add Customer” to create the first one.'}
+                      {search ? 'Try a different name, phone or city.' : 'Click “Add Customer” to create the first one.'}
                     </p>
                   </td>
                 </tr>
@@ -156,13 +168,25 @@ export default function CustomersPage() {
                         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-signal">
                           {initials(c.name)}
                         </span>
-                        <span className="font-medium text-ink">{c.name}</span>
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">{c.name}</p>
+                          {c.email && <p className="truncate text-xs text-gravel">{c.email}</p>}
+                        </div>
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{c.phone || '-'}</td>
-                    <td className="px-4 py-3.5 text-gravel">{c.email || '-'}</td>
-                    <td className="max-w-[260px] truncate px-4 py-3.5 text-gravel" title={c.address || undefined}>
-                      {c.address || '-'}
+                    <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-gravel">{c.gstin || '-'}</td>
+                    <td className="max-w-[300px] px-4 py-3.5 text-gravel" title={fullAddress(c) || undefined}>
+                      {fullAddress(c) ? (
+                        <>
+                          {c.address && <p className="truncate">{c.address}</p>}
+                          <p className="truncate text-xs">
+                            {[location(c), c.pincode].filter(Boolean).join(' - ')}
+                          </p>
+                        </>
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-1">
