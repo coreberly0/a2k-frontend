@@ -217,15 +217,15 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Add / Edit side panel */}
+      {/* Add / Edit full-screen form */}
       <Modal
         open={r.formOpen}
         title={r.editing ? 'Edit Customer' : 'Add Customer'}
         description={r.editing ? 'Update the customer details' : 'Enter the customer details below'}
         icon={r.editing ? <Pencil size={20} /> : <Plus size={20} />}
         tone={r.editing ? 'info' : 'success'}
-        size="md"
-        placement="right"
+        size="xl"
+        placement="full"
         onClose={r.closeForm}
         footer={
           <FormActions

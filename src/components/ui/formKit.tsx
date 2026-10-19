@@ -57,6 +57,32 @@ export function Section({ title, children }: { title: string; children: React.Re
   )
 }
 
+/** Card section for full-screen forms: title + icon on the left, fields on the right. */
+export function SectionCard({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid gap-6 rounded-2xl border border-black/5 bg-white p-6 shadow-sm lg:grid-cols-[240px_1fr] lg:gap-10 lg:p-8">
+      <div>
+        <span className="mb-3 grid size-10 place-items-center rounded-xl bg-signal/20 text-ink">
+          <Icon size={20} />
+        </span>
+        <h3 className="font-display text-lg font-bold text-ink">{title}</h3>
+        {description && <p className="mt-1 text-sm text-gravel">{description}</p>}
+      </div>
+      <div className="space-y-5">{children}</div>
+    </section>
+  )
+}
+
 /** Cancel + Submit buttons for the panel footer. The submit button targets the form by id. */
 export function FormActions({
   formId,
