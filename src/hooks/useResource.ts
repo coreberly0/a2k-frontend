@@ -52,17 +52,34 @@ export function useResource<T extends { id: string }>(path: string, query = '') 
     setEditing(null)
   }
 
-  async function save(values: unknown) {
+  /**
+   * Saves the row, then runs the optional `after` step (for example the bill
+   * file upload) with the saved row, then reloads the list.
+   */
+  async function save(values: unknown, after?: (saved: T) => Promise<void>) {
     setSaving(true)
     setFormError('')
     try {
-      if (editing) {
-        await api(`${path}/${editing.id}`, { method: 'PATCH', body: values })
-      } else {
-        await api(path, { method: 'POST', body: values })
+      // POST and PATCH both return the saved row (it has the id)
+      const saved = editing
+        ? await api<T>(`${path}/${editing.id}`, { method: 'PATCH', body: values })
+        : await api<T>(path, { method: 'POST', body: values })
+
+      let afterError = ''
+      if (after) {
+        try {
+          await after(saved)
+        } catch (e) {
+          afterError = e instanceof Error ? e.message : 'File step failed'
+        }
       }
+
       closeForm()
       await load()
+      // the row itself is saved; only the file step failed
+      if (afterError) {
+        setError(`Saved, but the bill copy failed: ${afterError}. Open Edit to try again.`)
+      }
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Save failed')
     } finally {

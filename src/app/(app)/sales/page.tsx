@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X,
-  Receipt, IndianRupee, Package, CalendarDays,
+  Receipt, IndianRupee, Package, CalendarDays, Paperclip, Printer,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
-import { Sale } from '@/components/sales/SaleForm'
+import Modal from '@/components/ui/Modal'
+import SaleForm, { Sale, BillChange, SALE_FORM_ID } from '@/components/sales/SaleForm'
+import { FormActions } from '@/components/ui/formKit'
 import { money } from '@/lib/format'
-import AddSale from './add'
-import EditSale from './edit'
+import { salesBillApi } from '@/lib/billApi'
+import { printSale } from '@/lib/printBill'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -30,18 +32,39 @@ function paymentStyle(p?: string | null) {
   return 'bg-signal/20 text-ink'
 }
 
+const PlusIcon = (
+  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+)
+const PencilIcon = (
+  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+  </svg>
+)
+
+const PAYMENT_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'unpaid', label: 'Unpaid' },
+]
+
 export default function SalesPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [payment, setPayment] = useState('')
   const [search, setSearch] = useState('')
+  const [actionError, setActionError] = useState('')
 
   const query = useMemo(() => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
+    if (payment) qs.set('payment', payment)
     const s = qs.toString()
     return s ? `?${s}` : ''
-  }, [from, to])
+  }, [from, to, payment])
 
   const r = useResource<Sale>('/sales', query)
 
@@ -59,7 +82,7 @@ export default function SalesPage() {
     const q = search.trim().toLowerCase()
     if (!q) return r.rows
     return r.rows.filter((s) =>
-      [s.bill_no, s.customer?.name, s.material?.name, s.vehicle?.plate_number, s.payment].some((v) =>
+      [s.bill_no, s.customer?.name, s.material?.name, s.vehicle?.plate_number, s.payment, s.notes].some((v) =>
         String(v ?? '').toLowerCase().includes(q)
       )
     )
@@ -77,11 +100,38 @@ export default function SalesPage() {
     [rows]
   )
 
-  const hasFilter = !!(from || to || search)
+  const hasFilter = !!(from || to || payment || search)
   function clearFilters() {
     setFrom('')
     setTo('')
+    setPayment('')
     setSearch('')
+  }
+
+  // save the bill first, then upload / remove the bill copy using the saved row's id
+  function handleSave(values: Record<string, unknown>, bill: BillChange) {
+    return r.save(values, async (saved: Sale) => {
+      if (bill.file) await salesBillApi.upload(saved.id, bill.file)
+      else if (bill.remove) await salesBillApi.remove(saved.id)
+    })
+  }
+
+  async function viewBill(id: string) {
+    setActionError('')
+    try {
+      await salesBillApi.open(id)
+    } catch (e: any) {
+      setActionError(e?.message || 'Could not open the bill')
+    }
+  }
+
+  async function printBill(id: string) {
+    setActionError('')
+    try {
+      await printSale(id)
+    } catch (e: any) {
+      setActionError(e?.message || 'Could not print the bill')
+    }
   }
 
   const dateWrap =
@@ -129,17 +179,15 @@ export default function SalesPage() {
             <Package size={22} />
           </span>
           <div>
-            <p className="text-2xl font-bold leading-none text-ink">
-              {totals.qty.toLocaleString('en-IN')}
-            </p>
+            <p className="text-2xl font-bold leading-none text-ink">{totals.qty.toLocaleString('en-IN')}</p>
             <p className="mt-1 text-xs text-gravel">Total quantity</p>
           </div>
         </div>
       </div>
 
-      {r.error && (
+      {(r.error || actionError) && (
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-          {r.error}
+          {r.error || actionError}
         </p>
       )}
 
@@ -152,9 +200,25 @@ export default function SalesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bill, customer, vehicle"
+              placeholder="Search bill, customer, vehicle, notes"
               className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
             />
+          </div>
+
+          {/* payment filter */}
+          <div className="flex gap-1 rounded-xl border border-black/10 bg-paper/60 p-1">
+            {PAYMENT_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setPayment(f.value)}
+                aria-pressed={payment === f.value}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  payment === f.value ? 'bg-ink text-signal shadow' : 'text-gravel hover:bg-black/5 hover:text-ink'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +244,7 @@ export default function SalesPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left text-sm">
+          <table className="w-full min-w-[1040px] text-left text-sm">
             <thead className="bg-paper/70 text-xs font-semibold text-gravel">
               <tr>
                 <th className="w-16 px-4 py-3">S.No</th>
@@ -193,6 +257,7 @@ export default function SalesPage() {
                 <th className="px-4 py-3 text-right">Rate</th>
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3">Payment</th>
+                <th className="px-4 py-3 text-center">Bill</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -200,13 +265,13 @@ export default function SalesPage() {
             <tbody className="divide-y divide-black/5">
               {r.loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-14 text-center text-gravel">
+                  <td colSpan={12} className="px-4 py-14 text-center text-gravel">
                     <Loader2 className="mx-auto animate-spin" size={22} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-14 text-center">
+                  <td colSpan={12} className="px-4 py-14 text-center">
                     <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-paper text-gravel">
                       <Receipt size={22} />
                     </span>
@@ -228,7 +293,14 @@ export default function SalesPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{fmtDate(s.sale_date)}</td>
-                    <td className="px-4 py-3.5 font-medium text-ink">{s.customer?.name || '-'}</td>
+                    <td className="px-4 py-3.5">
+                      <p className="font-medium text-ink">{s.customer?.name || '-'}</p>
+                      {s.notes && (
+                        <p className="mt-0.5 max-w-[220px] truncate text-xs text-gravel" title={s.notes}>
+                          {s.notes}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5 text-ink">{s.material?.name || '-'}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{s.vehicle?.plate_number || '-'}</td>
                     <td className="px-4 py-3.5 text-right tabular-nums text-ink">{s.quantity}</td>
@@ -243,8 +315,30 @@ export default function SalesPage() {
                         {s.payment || '-'}
                       </span>
                     </td>
+                    <td className="px-4 py-3.5 text-center">
+                      {s.bill_name ? (
+                        <button
+                          onClick={() => viewBill(s.id)}
+                          title={`View bill copy: ${s.bill_name}`}
+                          aria-label="View bill copy"
+                          className="rounded-lg p-2 text-ink transition hover:bg-signal/20"
+                        >
+                          <Paperclip size={17} />
+                        </button>
+                      ) : (
+                        <span className="text-gravel">-</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => printBill(s.id)}
+                          title="Print bill"
+                          aria-label={`Print bill ${s.bill_no}`}
+                          className="rounded-lg p-2 text-gravel transition hover:bg-black/5 hover:text-ink"
+                        >
+                          <Printer size={17} />
+                        </button>
                         <button
                           onClick={() => r.openEdit(s)}
                           aria-label={`Edit bill ${s.bill_no}`}
@@ -252,13 +346,16 @@ export default function SalesPage() {
                         >
                           <Pencil size={17} />
                         </button>
-                        <button
-                          onClick={() => r.askDelete(s)}
-                          aria-label={`Delete bill ${s.bill_no}`}
-                          className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 size={17} />
-                        </button>
+                        {/* only admins can delete */}
+                        {r.admin && (
+                          <button
+                            onClick={() => r.askDelete(s)}
+                            aria-label={`Delete bill ${s.bill_no}`}
+                            className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -276,7 +373,7 @@ export default function SalesPage() {
                   <td className="px-4 py-3.5 text-right tabular-nums">{totals.qty.toLocaleString('en-IN')}</td>
                   <td />
                   <td className="px-4 py-3.5 text-right tabular-nums">{money(totals.amount)}</td>
-                  <td colSpan={2} />
+                  <td colSpan={3} />
                 </tr>
               </tfoot>
             )}
@@ -284,24 +381,33 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Add popup: open when the form is open and nothing is being edited */}
-      <AddSale
-        open={r.formOpen && !r.editing}
-        saving={r.saving}
-        error={r.formError}
-        onSubmit={r.save}
+      {/* Add / Edit side panel */}
+      <Modal
+        open={r.formOpen}
+        title={r.editing ? 'Edit Bill' : 'Add Bill'}
+        description={r.editing ? `Update bill ${r.editing.bill_no}` : 'Enter the sale details below'}
+        icon={r.editing ? PencilIcon : PlusIcon}
+        tone={r.editing ? 'info' : 'success'}
+        size="lg"
+        placement="right"
         onClose={r.closeForm}
-      />
-
-      {/* Edit popup: open when the form is open and a bill is selected */}
-      <EditSale
-        open={r.formOpen && !!r.editing}
-        sale={r.editing}
-        saving={r.saving}
-        error={r.formError}
-        onSubmit={r.save}
-        onClose={r.closeForm}
-      />
+        footer={
+          <FormActions
+            formId={SALE_FORM_ID}
+            saving={r.saving}
+            onCancel={r.closeForm}
+            label={r.editing ? 'Save changes' : 'Add bill'}
+          />
+        }
+      >
+        <SaleForm
+          key={r.editing?.id ?? 'new'}
+          initial={r.editing}
+          saving={r.saving}
+          error={r.formError}
+          onSubmit={handleSave}
+        />
+      </Modal>
 
       {/* delete confirmation */}
       {r.deleting && (
@@ -319,7 +425,8 @@ export default function SalesPage() {
             <div>
               <h2 className="font-display text-xl font-bold text-ink">Delete bill?</h2>
               <p className="mt-1 text-sm text-gravel">
-                Bill <span className="font-medium text-ink">{r.deleting.bill_no}</span> will be removed.
+                Bill <span className="font-medium text-ink">{r.deleting.bill_no}</span> will be removed.{' '}
+                {r.deleting.bill_name && 'Its bill copy will be deleted too. '}
                 This can&apos;t be undone.
               </p>
             </div>

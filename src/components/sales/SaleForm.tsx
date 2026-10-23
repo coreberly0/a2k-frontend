@@ -1,11 +1,13 @@
 'use client'
-import { useEffect, useRef, useState, FormEvent } from 'react'
+import { useState, FormEvent } from 'react'
 import {
-  Hash, CalendarDays, UserRound, Boxes, Truck, Contact, Package, IndianRupee,
-  Percent, ChevronDown, Check, Search, Loader2, X,
+  Hash, CalendarDays, UserRound, Boxes, Truck, Contact, Package, IndianRupee, Percent,
 } from 'lucide-react'
 import { useOptions } from '@/hooks/useOptions'
 import { money, orNull, todayStr } from '@/lib/format'
+import { salesBillApi } from '@/lib/billApi'
+import { Field, Section, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
+import BillField from '@/components/purchases/Billfield'
 
 export type Sale = {
   id: string
@@ -22,284 +24,24 @@ export type Sale = {
   payment: string | null
   notes: string | null
   total_amount: number | string
+  bill_name?: string | null
   customer?: { name: string } | null
   material?: { name: string } | null
   vehicle?: { plate_number: string } | null
 }
 
+/** What the person did with the bill copy in this form. */
+export type BillChange = { file: File | null; remove: boolean }
+
 type Props = {
   initial?: Sale | null
   saving: boolean
   error: string
-  onSubmit: (values: Record<string, unknown>) => void
+  onSubmit: (values: Record<string, unknown>, bill: BillChange) => void
 }
 
-/** The popup footer buttons submit this form through its id. */
+/** The panel footer buttons submit this form through its id. */
 export const SALE_FORM_ID = 'sale-form'
-
-export function SaleFormActions({
-  saving,
-  onCancel,
-  label,
-}: {
-  saving: boolean
-  onCancel: () => void
-  label: string
-}) {
-  return (
-    <div className="flex w-full gap-3 sm:justify-end">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="flex-1 rounded-xl border border-black/10 bg-white py-3 font-medium text-ink transition hover:bg-black/5 sm:flex-none sm:px-6"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        form={SALE_FORM_ID}
-        disabled={saving}
-        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-signal py-3 font-semibold text-ink shadow-lg shadow-signal/30 transition hover:brightness-95 active:scale-[0.99] disabled:opacity-60 sm:flex-none sm:px-8"
-      >
-        {saving && <Loader2 size={18} className="animate-spin" />}
-        {saving ? 'Saving…' : label}
-      </button>
-    </div>
-  )
-}
-
-/* ---------- small building blocks ---------- */
-
-type Opt = { value: string; label: string }
-
-// useOptions may give {value,label} or {id,name}; accept both
-function normalize(options: unknown): Opt[] {
-  if (!Array.isArray(options)) return []
-  return options.map((o: any) =>
-    typeof o === 'string'
-      ? { value: o, label: o }
-      : { value: String(o.value ?? o.id ?? ''), label: String(o.label ?? o.name ?? o.value ?? '') }
-  )
-}
-
-const fieldBase =
-  'flex items-center gap-3 rounded-xl border bg-paper/60 px-3.5 transition focus-within:border-signal focus-within:bg-white focus-within:ring-4 focus-within:ring-signal/20'
-const inputBase =
-  'w-full bg-transparent py-3 text-base text-ink outline-none placeholder:text-gravel/60 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [appearance:textfield]'
-
-function Field({
-  label,
-  required,
-  optional,
-  error,
-  children,
-}: {
-  label: string
-  required?: boolean
-  optional?: boolean
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <span className="mb-1.5 block text-sm font-medium text-ink">
-        {label}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
-        {optional && <span className="ml-1.5 font-normal text-gravel">(optional)</span>}
-      </span>
-      {children}
-      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-4">
-      <h3 className="flex items-center gap-3 text-sm font-semibold text-ink">
-        {title}
-        <span className="h-px flex-1 bg-black/5" />
-      </h3>
-      {children}
-    </section>
-  )
-}
-
-/* ---------- dropdown (list opens above or below depending on space) ---------- */
-
-function Dropdown({
-  label,
-  icon: Icon,
-  value,
-  onChange,
-  options,
-  failed,
-  required,
-  error,
-}: {
-  label: string
-  icon: React.ComponentType<{ size?: number; className?: string }>
-  value: string
-  onChange: (v: string) => void
-  options: Opt[]
-  failed?: boolean
-  required?: boolean
-  error?: string
-}) {
-  const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
-  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxH: number } | null>(null)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
-
-  const current = options.find((o) => o.value === value)
-  const showSearch = options.length > 6
-  const shown = q ? options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : options
-
-  function toggle() {
-    if (open) return setOpen(false)
-    const r = btnRef.current!.getBoundingClientRect()
-    const below = window.innerHeight - r.bottom - 12
-    const above = r.top - 12
-    const up = below < 260 && above > below
-    setPos({
-      left: r.left,
-      width: r.width,
-      ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }),
-      maxH: Math.min(320, up ? above : below),
-    })
-    setQ('')
-    setOpen(true)
-  }
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    // the list is fixed-position, so close it if the page scrolls underneath
-    const onScroll = (e: Event) => {
-      if (listRef.current && listRef.current.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    const onResize = () => setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onResize)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [open])
-
-  return (
-    <Field label={label} required={required} optional={!required} error={error}>
-      <div
-        ref={wrapRef}
-        onKeyDown={(e) => {
-          // Escape closes only the list, not the whole popup
-          if (e.key === 'Escape' && open) {
-            e.stopPropagation()
-            setOpen(false)
-          }
-        }}
-      >
-        <button
-          ref={btnRef}
-          type="button"
-          onClick={toggle}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          className={`flex w-full items-center gap-3 rounded-xl border bg-paper/60 px-3.5 py-3 text-left transition focus:outline-none focus-visible:border-signal focus-visible:ring-4 focus-visible:ring-signal/20 ${
-            open
-              ? 'border-signal bg-white ring-4 ring-signal/20'
-              : error
-                ? 'border-red-300'
-                : 'border-black/10 hover:border-black/20'
-          }`}
-        >
-          <Icon size={18} className="shrink-0 text-gravel" />
-          <span className={`flex-1 truncate text-base ${current ? 'text-ink' : 'text-gravel/60'}`}>
-            {current ? current.label : 'Select'}
-          </span>
-          <ChevronDown
-            size={18}
-            className={`shrink-0 text-gravel transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          />
-        </button>
-
-        {open && pos && (
-          <div
-            ref={listRef}
-            role="listbox"
-            style={{ position: 'fixed', left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH }}
-            className="z-[120] flex flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl shadow-ink/15"
-          >
-            {showSearch && (
-              <div className="flex items-center gap-2 border-b border-black/5 px-3">
-                <Search size={16} className="shrink-0 text-gravel" />
-                <input
-                  autoFocus
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search"
-                  className="w-full bg-transparent py-2.5 text-sm text-ink outline-none placeholder:text-gravel/60"
-                />
-              </div>
-            )}
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-              {!required && value && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange('')
-                    setOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-gravel transition hover:bg-paper"
-                >
-                  <X size={15} /> Clear selection
-                </button>
-              )}
-
-              {shown.length === 0 ? (
-                <p className="px-3 py-4 text-center text-sm text-gravel">
-                  {failed ? "Couldn't load this list" : options.length === 0 ? 'Nothing to choose yet' : 'No match'}
-                </p>
-              ) : (
-                shown.map((o) => {
-                  const selected = o.value === value
-                  return (
-                    <button
-                      key={o.value}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        onChange(o.value)
-                        setOpen(false)
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                        selected ? 'bg-signal/15 font-semibold text-ink' : 'text-ink hover:bg-paper'
-                      }`}
-                    >
-                      <span className="flex-1 truncate">{o.label}</span>
-                      {selected && <Check size={16} className="shrink-0" />}
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </Field>
-  )
-}
-
-/* ---------- the form ---------- */
 
 const GST_PRESETS = ['5', '12', '18', '28']
 
@@ -325,9 +67,24 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [errs, setErrs] = useState<{ customer?: string; material?: string }>({})
 
+  // bill copy
+  const [billFile, setBillFile] = useState<File | null>(null)
+  const [billRemoved, setBillRemoved] = useState(false)
+  const [billError, setBillError] = useState('')
+
   const base = Number(quantity || 0) * Number(rate || 0)
   const gstAmount = withGst ? (base * Number(gstPercent || 0)) / 100 : 0
   const total = base + gstAmount
+
+  async function viewExistingBill() {
+    if (!initial) return
+    setBillError('')
+    try {
+      await salesBillApi.open(initial.id)
+    } catch (e: any) {
+      setBillError(e?.message || 'Could not open the bill')
+    }
+  }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -353,14 +110,16 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
     }
     if (withGst && gstPercent !== '') body.gst_percent = Number(gstPercent)
     if (payment) body.payment = payment
-    onSubmit(body)
+    onSubmit(body, { file: billFile, remove: billRemoved })
   }
+
+  const shownError = error || billError
 
   return (
     <form id={SALE_FORM_ID} onSubmit={handleSubmit} className="space-y-7 text-ink">
-      {error && (
+      {shownError && (
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-          {error}
+          {shownError}
         </p>
       )}
 
@@ -535,7 +294,7 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
         </div>
       </Section>
 
-      <Section title="Payment and notes">
+      <Section title="Payment, bill copy and notes">
         <Field label="Payment" optional>
           <div className="grid grid-cols-2 gap-2 rounded-xl border border-black/10 bg-paper/60 p-1">
             {[
@@ -558,8 +317,18 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
           </div>
         </Field>
 
+        <BillField
+          file={billFile}
+          onFileChange={setBillFile}
+          existingName={initial?.bill_name}
+          onViewExisting={viewExistingBill}
+          onRemoveExisting={() => setBillRemoved(true)}
+          removed={billRemoved}
+          disabled={saving}
+        />
+
         <Field label="Notes" optional>
-          <div className={`${fieldBase} border-black/10 items-start`}>
+          <div className={`${fieldBase} items-start border-black/10`}>
             <textarea
               rows={2}
               value={notes}
