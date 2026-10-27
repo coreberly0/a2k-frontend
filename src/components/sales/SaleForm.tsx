@@ -7,6 +7,7 @@ import { useOptions } from '@/hooks/useOptions'
 import { money, orNull, todayStr } from '@/lib/format'
 import { salesBillApi } from '@/lib/billApi'
 import { Field, Section, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
+// NOTE: the filename on disk must be exactly BillField.tsx (Vercel is case-sensitive)
 import BillField from '@/components/purchases/Billfield'
 
 export type Sale = {
@@ -367,5 +368,37 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
         </div>
       </div>
     </form>
+  )
+}
+
+/** Footer buttons for the add/edit panels. Submits the form above by its id. */
+export function SaleFormActions({
+  saving,
+  onCancel,
+  submitLabel = 'Save sale',
+}: {
+  saving: boolean
+  onCancel: () => void
+  submitLabel?: string
+}) {
+  return (
+    <div className="flex justify-end gap-3">
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={saving}
+        className="rounded-xl border border-black/10 px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-black/5 disabled:opacity-60"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form={SALE_FORM_ID}
+        disabled={saving}
+        className="rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-signal transition disabled:opacity-60"
+      >
+        {saving ? 'Saving…' : submitLabel}
+      </button>
+    </div>
   )
 }
