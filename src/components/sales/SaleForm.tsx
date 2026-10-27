@@ -375,11 +375,11 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
 export function SaleFormActions({
   saving,
   onCancel,
-  submitLabel = 'Save sale',
+  label = 'Save sale',
 }: {
   saving: boolean
   onCancel: () => void
-  submitLabel?: string
+  label?: string
 }) {
   return (
     <div className="flex justify-end gap-3">
@@ -397,7 +397,7 @@ export function SaleFormActions({
         disabled={saving}
         className="rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-signal transition disabled:opacity-60"
       >
-        {saving ? 'Saving…' : submitLabel}
+        {saving ? 'Saving…' : label}
       </button>
     </div>
   )
