@@ -2,21 +2,41 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X,
-  Contact, Phone, PhoneOff,
+  Contact, UserCheck, FileWarning, Truck,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
 import Modal from '@/components/ui/Modal'
 import { FormActions } from '@/components/ui/formKit'
-import DriverForm, { Driver, DRIVER_FORM_ID } from '@/components/drivers/DriverForm'
+import DriverForm, { Driver, VehicleOption, DRIVER_FORM_ID } from '@/components/drivers/DriverForm'
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/)
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?'
 }
 
+type LicenceState = { label: string; className: string; problem: boolean }
+
+// days left until the licence expires (negative = already expired)
+function licenceState(expiry: string | null): LicenceState | null {
+  if (!expiry) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((new Date(`${expiry}T00:00:00`).getTime() - today.getTime()) / 86400000)
+  const date = new Date(`${expiry}T00:00:00`).toLocaleDateString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  })
+  if (days < 0) return { label: `Expired · ${date}`, className: 'bg-red-50 text-red-700', problem: true }
+  if (days <= 30) return { label: `${days}d left · ${date}`, className: 'bg-amber-50 text-amber-700', problem: true }
+  return { label: date, className: 'bg-black/5 text-gravel', problem: false }
+}
+
+type Filter = 'all' | 'available' | 'unavailable'
+
 export default function DriversPage() {
   const r = useResource<Driver>('/drivers')
+  const vehicles = useResource<VehicleOption>('/vehicles')
   const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
 
   // close the delete dialog with Escape
   useEffect(() => {
@@ -29,15 +49,27 @@ export default function DriversPage() {
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return r.rows
-    return r.rows.filter((d) => [d.full_name, d.phone].some((v) => v?.toLowerCase().includes(q)))
-  }, [r.rows, search])
+    return r.rows.filter((d) => {
+      if (filter === 'available' && !d.is_available) return false
+      if (filter === 'unavailable' && d.is_available) return false
+      if (!q) return true
+      return [d.full_name, d.phone, d.license_number, d.vehicle?.plate_number].some((v) =>
+        v?.toLowerCase().includes(q)
+      )
+    })
+  }, [r.rows, search, filter])
 
-  const withPhone = r.rows.filter((d) => d.phone).length
-  const withoutPhone = r.rows.length - withPhone
+  const available = r.rows.filter((d) => d.is_available).length
+  const licenceIssues = r.rows.filter((d) => licenceState(d.license_expiry)?.problem).length
+
+  const filters: { key: Filter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'available', label: 'Available' },
+    { key: 'unavailable', label: 'Not available' },
+  ]
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -65,20 +97,20 @@ export default function DriversPage() {
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-ink text-signal">
-            <Phone size={22} />
+            <UserCheck size={22} />
           </span>
           <div>
-            <p className="text-2xl font-bold leading-none text-ink">{withPhone}</p>
-            <p className="mt-1 text-xs text-gravel">With phone number</p>
+            <p className="text-2xl font-bold leading-none text-ink">{available}</p>
+            <p className="mt-1 text-xs text-gravel">Available</p>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-signal/20 text-ink">
-            <PhoneOff size={22} />
+            <FileWarning size={22} />
           </span>
           <div>
-            <p className="text-2xl font-bold leading-none text-ink">{withoutPhone}</p>
-            <p className="mt-1 text-xs text-gravel">Missing phone</p>
+            <p className="text-2xl font-bold leading-none text-ink">{licenceIssues}</p>
+            <p className="mt-1 text-xs text-gravel">Licence expired / expiring in 30 days</p>
           </div>
         </div>
       </div>
@@ -97,13 +129,31 @@ export default function DriversPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name or phone"
+              placeholder="Search name, phone, licence or vehicle"
               className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
             />
           </div>
-          {search && (
+
+          <div className="flex gap-1 rounded-xl bg-paper/70 p-1">
+            {filters.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  filter === f.key ? 'bg-white text-ink shadow-sm' : 'text-gravel hover:text-ink'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {(search || filter !== 'all') && (
             <button
-              onClick={() => setSearch('')}
+              onClick={() => {
+                setSearch('')
+                setFilter('all')
+              }}
               className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium text-gravel transition hover:bg-black/5 hover:text-ink"
             >
               <X size={16} /> Clear
@@ -112,12 +162,15 @@ export default function DriversPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-paper/70 text-xs font-semibold text-gravel">
               <tr>
                 <th className="w-16 px-4 py-3">S.No</th>
                 <th className="px-4 py-3">Driver</th>
                 <th className="px-4 py-3">Phone</th>
+                <th className="px-4 py-3">Vehicle</th>
+                <th className="px-4 py-3">Licence expiry</th>
+                <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -125,75 +178,114 @@ export default function DriversPage() {
             <tbody className="divide-y divide-black/5">
               {r.loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-14 text-center text-gravel">
+                  <td colSpan={7} className="px-4 py-14 text-center text-gravel">
                     <Loader2 className="mx-auto animate-spin" size={22} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-14 text-center">
+                  <td colSpan={7} className="px-4 py-14 text-center">
                     <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-paper text-gravel">
                       <Contact size={22} />
                     </span>
                     <p className="font-medium text-ink">
-                      {search ? 'No drivers match your search' : 'No drivers yet'}
+                      {search || filter !== 'all' ? 'No drivers match your filters' : 'No drivers yet'}
                     </p>
                     <p className="mt-1 text-sm text-gravel">
-                      {search ? 'Try a different name or phone.' : 'Click “Add Driver” to create the first one.'}
+                      {search || filter !== 'all'
+                        ? 'Try a different search or filter.'
+                        : 'Click “Add Driver” to create the first one.'}
                     </p>
                   </td>
                 </tr>
               ) : (
-                rows.map((d, i) => (
-                  <tr key={d.id} className="transition hover:bg-paper/50">
-                    <td className="px-4 py-3.5 font-medium text-gravel">{i + 1}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-signal">
-                          {initials(d.full_name)}
-                        </span>
-                        <span className="font-medium text-ink">{d.full_name}</span>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{d.phone || '-'}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          onClick={() => r.openEdit(d)}
-                          aria-label={`Edit ${d.full_name}`}
-                          className="rounded-lg p-2 text-gravel transition hover:bg-black/5 hover:text-ink"
-                        >
-                          <Pencil size={17} />
-                        </button>
-                        {/* only admins can delete */}
-                        {r.admin && (
-                          <button
-                            onClick={() => r.askDelete(d)}
-                            aria-label={`Delete ${d.full_name}`}
-                            className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 size={17} />
-                          </button>
+                rows.map((d, i) => {
+                  const lic = licenceState(d.license_expiry)
+                  return (
+                    <tr key={d.id} className="transition hover:bg-paper/50">
+                      <td className="px-4 py-3.5 font-medium text-gravel">{i + 1}</td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-signal">
+                            {initials(d.full_name)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-medium text-ink">{d.full_name}</p>
+                            {d.license_number && (
+                              <p className="font-mono text-xs text-gravel">{d.license_number}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-gravel">{d.phone || '-'}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        {d.vehicle ? (
+                          <span className="inline-flex items-center gap-1.5 text-ink">
+                            <Truck size={15} className="text-gravel" />
+                            <span className="font-medium">{d.vehicle.plate_number}</span>
+                            {d.vehicle.type && <span className="text-xs text-gravel">{d.vehicle.type}</span>}
+                          </span>
+                        ) : (
+                          <span className="text-gravel">-</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        {lic ? (
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${lic.className}`}>
+                            {lic.label}
+                          </span>
+                        ) : (
+                          <span className="text-gravel">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            d.is_available ? 'bg-emerald-50 text-emerald-700' : 'bg-black/5 text-gravel'
+                          }`}
+                        >
+                          {d.is_available ? 'Available' : 'Not available'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            onClick={() => r.openEdit(d)}
+                            aria-label={`Edit ${d.full_name}`}
+                            className="rounded-lg p-2 text-gravel transition hover:bg-black/5 hover:text-ink"
+                          >
+                            <Pencil size={17} />
+                          </button>
+                          {/* only admins can delete */}
+                          {r.admin && (
+                            <button
+                              onClick={() => r.askDelete(d)}
+                              aria-label={`Delete ${d.full_name}`}
+                              className="rounded-lg p-2 text-gravel transition hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 size={17} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Add / Edit side panel */}
+      {/* Add / Edit full-screen form */}
       <Modal
         open={r.formOpen}
         title={r.editing ? 'Edit Driver' : 'Add Driver'}
         description={r.editing ? 'Update the driver details' : 'Enter the driver details below'}
         icon={r.editing ? <Pencil size={20} /> : <Plus size={20} />}
         tone={r.editing ? 'info' : 'success'}
-        size="md"
-        placement="right"
+        size="xl"
+        placement="full"
         onClose={r.closeForm}
         footer={
           <FormActions
@@ -207,6 +299,7 @@ export default function DriversPage() {
         <DriverForm
           key={r.editing?.id ?? 'new'}
           initial={r.editing}
+          vehicles={vehicles.rows}
           saving={r.saving}
           error={r.formError}
           onSubmit={r.save}
@@ -230,7 +323,8 @@ export default function DriversPage() {
               <h2 className="font-display text-xl font-bold text-ink">Delete driver?</h2>
               <p className="mt-1 text-sm text-gravel">
                 <span className="font-medium text-ink">{r.deleting.full_name}</span> will be removed.
-                This can&apos;t be undone.
+                This can&apos;t be undone. If the driver is used in bills or expenses, mark them as
+                not available instead.
               </p>
             </div>
             <div className="flex gap-3">
