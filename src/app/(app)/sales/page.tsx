@@ -6,7 +6,7 @@ import {
   Receipt, IndianRupee, Package, CalendarDays, Paperclip, Printer,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
-import Modal from '@/components/ui/Modal'
+import FullPanel from '@/components/ui/FullPanel'
 import SaleForm, { Sale, BillChange, SALE_FORM_ID } from '@/components/sales/SaleForm'
 import { FormActions } from '@/components/ui/formKit'
 import { money } from '@/lib/format'
@@ -381,15 +381,13 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Add / Edit side panel */}
-      <Modal
+      {/* Add / Edit full-width panel */}
+      <FullPanel
         open={r.formOpen}
         title={r.editing ? 'Edit Bill' : 'Add Bill'}
         description={r.editing ? `Update bill ${r.editing.bill_no}` : 'Enter the sale details below'}
         icon={r.editing ? PencilIcon : PlusIcon}
         tone={r.editing ? 'info' : 'success'}
-        size="lg"
-        placement="right"
         onClose={r.closeForm}
         footer={
           <FormActions
@@ -407,7 +405,7 @@ export default function SalesPage() {
           error={r.formError}
           onSubmit={handleSave}
         />
-      </Modal>
+      </FullPanel>
 
       {/* delete confirmation */}
       {r.deleting && (
