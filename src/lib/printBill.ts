@@ -209,8 +209,11 @@ export function billHtml(b: any) {
   .foot > .decl { padding: 6px 7px; min-height: 110px; }
   .foot > .right { border-left: 1px solid #000; display: flex; flex-direction: column; }
   .bank { padding: 6px 7px; }
-  .bank div { padding: 0.5px 0; }
-  .bank .t { text-decoration: underline; font-weight: 700; margin-bottom: 2px; }
+  .bank .t { text-decoration: underline; font-weight: 700; margin-bottom: 3px; }
+  .bk { width: auto; }
+  .bk td { padding: 1px 0; vertical-align: top; white-space: nowrap; }
+  .bk td:first-child { padding-right: 14px; }
+  .bk td.c { padding-right: 8px; }
   .sig { margin-top: auto; border-top: 1px solid #000; padding: 4px 7px 4px; text-align: right; min-height: 62px; display: flex; flex-direction: column; justify-content: space-between; }
   .notes { margin-top: 6px; font-size: 10px; }
 
@@ -308,10 +311,11 @@ export function billHtml(b: any) {
     <div class="right">
       <div class="bank">
         <div class="t">Company's Bank Details</div>
-        <div>A/c Holder's Name : <b>${esc(COMPANY.bank.holder)}</b></div>
-        <div>Bank Name : <b>${esc(COMPANY.bank.name)}</b></div>
-        <div>A/c No. : <b>${esc(COMPANY.bank.account)}</b></div>
-        <div>Branch &amp; IFS Code : <b>${esc(COMPANY.bank.branch)}</b></div>
+        <table class="bk">
+          <tr><td>Bank Name</td><td class="c">:</td><td><b>${esc(COMPANY.bank.name)}</b></td></tr>
+          <tr><td>A/c No</td><td class="c">:</td><td><b>${esc(COMPANY.bank.account)}</b></td></tr>
+          <tr><td>Branch &amp; IFS Code</td><td class="c">:</td><td><b>${esc(COMPANY.bank.branch)}</b></td></tr>
+        </table>
       </div>
       <div class="sig"><b>for ${esc(COMPANY.name)}</b><span>Authorised Signatory</span></div>
     </div>
