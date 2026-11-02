@@ -6,7 +6,7 @@ import {
   ShoppingCart, IndianRupee, Package, CalendarDays, Paperclip,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
-import Modal from '@/components/ui/Modal'
+import FullPanel from '@/components/ui/FullPanel'
 import PurchaseForm, { Purchase, BillChange, PURCHASE_FORM_ID } from '@/components/purchases/PurchaseForm'
 import { FormActions } from '@/components/ui/formKit'
 import { money } from '@/lib/format'
@@ -337,14 +337,12 @@ export default function PurchasesPage() {
       </div>
 
       {/* Add / Edit side panel */}
-      <Modal
+      <FullPanel
         open={r.formOpen}
         title={r.editing ? 'Edit Purchase' : 'Add Purchase'}
         description={r.editing ? 'Update the purchase details' : 'Enter the purchase details below'}
         icon={r.editing ? PencilIcon : PlusIcon}
         tone={r.editing ? 'info' : 'success'}
-        size="lg"
-        placement="right"
         onClose={r.closeForm}
         footer={
           <FormActions
@@ -362,7 +360,7 @@ export default function PurchasesPage() {
           error={r.formError}
           onSubmit={handleSave}
         />
-      </Modal>
+      </FullPanel>
 
       {/* delete confirmation */}
       {r.deleting && (
