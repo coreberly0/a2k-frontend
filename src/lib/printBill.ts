@@ -110,7 +110,7 @@ function partyBlock(title: string, c: any, code: string) {
 const metaCell = (label: string, value: unknown = '', cls = '') =>
   `<div class="m ${cls}"><div class="lbl">${label}</div><b>${esc(value)}</b></div>`
 
-export function billHtml(b: any) {
+export function billHtml(b: any, autoPrint = true) {
   const c = b.customer || {}
   const k = calcInvoice(b)
   const unit = b.material?.unit && b.material.unit !== 'unit' ? String(b.material.unit) : ''
@@ -333,23 +333,61 @@ export function billHtml(b: any) {
       : ''
   }
 
-  <script>window.onload = function () { setTimeout(function () { window.print() }, 400) }</script>
+  ${autoPrint ? '<script>window.onload = function () { setTimeout(function () { window.print() }, 400) }</script>' : ''}
 </body></html>`
 }
 
-/** Opens the bill in a new tab and starts printing. Call it straight from a click. */
+/* ------------------------------ printing: no blank tab, a loading card on the same page ------------------------------ */
+
+/** Shows a centred "loading" card over the page. Returns a function that removes it. */
+function showLoader(text: string) {
+  const el = document.createElement('div')
+  el.setAttribute('role', 'status')
+  el.style.cssText =
+    'position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:rgba(17,17,17,.55);backdrop-filter:blur(2px)'
+  el.innerHTML = `<style>@keyframes a2kspin{to{transform:rotate(360deg)}}</style>
+    <div style="background:#fff;border-radius:16px;padding:22px 30px;display:flex;align-items:center;gap:14px;font:600 15px Arial,Helvetica,sans-serif;color:#111;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <span style="width:22px;height:22px;border:3px solid #e5e5e5;border-top-color:#facc15;border-radius:50%;animation:a2kspin .8s linear infinite"></span>${text}
+    </div>`
+  document.body.appendChild(el)
+  return () => el.remove()
+}
+
+/** Loads the bill into a hidden frame and opens the print dialog. `onReady` runs just before the dialog opens. */
+function printInFrame(html: string, onReady: () => void) {
+  return new Promise<void>((resolve, reject) => {
+    const f = document.createElement('iframe')
+    f.setAttribute('aria-hidden', 'true')
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    const remove = () => setTimeout(() => f.remove(), 500)
+    f.onload = () => {
+      try {
+        const w = f.contentWindow!
+        w.onafterprint = remove
+        onReady() // hide the loading card first, the print dialog blocks the page
+        setTimeout(() => {
+          w.focus()
+          w.print()
+          resolve()
+        }, 150)
+        setTimeout(() => f.remove(), 5 * 60 * 1000) // safety clean-up
+      } catch (e) {
+        f.remove()
+        reject(e)
+      }
+    }
+    f.srcdoc = html
+    document.body.appendChild(f)
+  })
+}
+
+/** Click "Print": shows a loading card, then opens the print dialog. No new tab, no pop-up blocker. */
 export async function printSale(id: string) {
-  // open first, inside the click, so pop-up blockers allow it
-  const w = window.open('', '_blank')
-  if (!w) throw new Error('Allow pop-ups for this site to print bills')
-  w.document.write('<p style="font-family:sans-serif;padding:24px">Preparing bill…</p>')
+  const hide = showLoader('Preparing bill…')
   try {
     const data = await api<any>(`/sales/${id}/print`)
-    w.document.open()
-    w.document.write(billHtml(data))
-    w.document.close()
-  } catch (e) {
-    w.close()
-    throw e
+    await printInFrame(billHtml(data, false), hide)
+  } finally {
+    hide() // safe to call twice; also covers errors
   }
 }
