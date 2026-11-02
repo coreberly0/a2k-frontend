@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X, Boxes, ListFilter,
+  Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X, Boxes, ListFilter, Hash,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
 import Modal from '@/components/ui/Modal'
@@ -24,11 +24,13 @@ export default function MaterialsPage() {
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return r.rows
-    return r.rows.filter((m) => m.name?.toLowerCase().includes(q))
+    return r.rows.filter((m) =>
+      [m.name, m.unit, m.hsn_code].some((v) => String(v ?? '').toLowerCase().includes(q))
+    )
   }, [r.rows, search])
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -44,7 +46,7 @@ export default function MaterialsPage() {
       </div>
 
       {/* summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-signal/20 text-ink">
             <Boxes size={22} />
@@ -63,6 +65,17 @@ export default function MaterialsPage() {
             <p className="mt-1 text-xs text-gravel">Showing</p>
           </div>
         </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white p-4">
+          <span className="grid h-11 w-11 place-items-center rounded-xl bg-signal/20 text-ink">
+            <Hash size={22} />
+          </span>
+          <div>
+            <p className="text-2xl font-bold leading-none text-ink">
+              {r.rows.filter((m) => m.hsn_code).length}
+            </p>
+            <p className="mt-1 text-xs text-gravel">With HSN code</p>
+          </div>
+        </div>
       </div>
 
       {r.error && (
@@ -79,7 +92,7 @@ export default function MaterialsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search materials"
+              placeholder="Search name, unit or HSN"
               className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-gravel/60"
             />
           </div>
@@ -99,6 +112,8 @@ export default function MaterialsPage() {
               <tr>
                 <th className="w-16 px-4 py-3">S.No</th>
                 <th className="px-4 py-3">Material</th>
+                <th className="px-4 py-3">Unit</th>
+                <th className="px-4 py-3">HSN code</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -106,13 +121,13 @@ export default function MaterialsPage() {
             <tbody className="divide-y divide-black/5">
               {r.loading ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-14 text-center text-gravel">
+                  <td colSpan={5} className="px-4 py-14 text-center text-gravel">
                     <Loader2 className="mx-auto animate-spin" size={22} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-14 text-center">
+                  <td colSpan={5} className="px-4 py-14 text-center">
                     <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-paper text-gravel">
                       <Boxes size={22} />
                     </span>
@@ -135,6 +150,18 @@ export default function MaterialsPage() {
                         </span>
                         <span className="font-medium text-ink">{m.name}</span>
                       </div>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {m.unit ? (
+                        <span className="inline-block rounded-full bg-black/5 px-2.5 py-1 text-xs font-semibold capitalize text-ink">
+                          {m.unit}
+                        </span>
+                      ) : (
+                        <span className="text-gravel">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 tabular-nums text-ink">
+                      {m.hsn_code || <span className="text-gravel">-</span>}
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-1">
@@ -169,7 +196,7 @@ export default function MaterialsPage() {
       <Modal
         open={r.formOpen}
         title={r.editing ? 'Edit Material' : 'Add Material'}
-        description={r.editing ? 'Update the material name' : 'Enter the material name below'}
+        description={r.editing ? 'Update the material details' : 'Enter the material details below'}
         icon={r.editing ? <Pencil size={20} /> : <Plus size={20} />}
         tone={r.editing ? 'info' : 'success'}
         size="sm"
