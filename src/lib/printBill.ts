@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 /* ------------------------------------------------------------------ */
 const COMPANY = {
   name: 'A2K TRANSPORT',
-  address: ['No.78 THIRISUL MUTHU BALAKUMARAN NAGAR', 'A PART Kolathur Chennai Tiruvallur', 'Tamil Nadu 600099'],
+  address: ['No.78, Thirisul Muthu Balakumaran Nagar', 'A PART Kolathur Chennai Tiruvallur', 'Tamil Nadu 600099'],
   gstin: '33ACOFA3138R1ZX',
   state: 'Tamil Nadu',
   stateCode: '33',
@@ -17,6 +17,13 @@ const COMPANY = {
     branch: 'KOYAMBEDU & HDFC0005555',
   },
 }
+
+/** Full unit names, printed under the quantity so "MT" is clear (Metric Ton) */
+const UNIT_NAMES: Record<string, string> = { mt: 'Metric Ton', kg: 'Kilogram', ltr: 'Litre', cft: 'Cubic Feet', nos: 'Numbers' }
+
+/** true  = "Amount Chargeable (in words)" shows the base value only (as asked on the printed bill)
+ *  false = it shows the full total including GST (the usual Tally way) */
+const WORDS_ON_BASE_AMOUNT = true
 
 const STATES: Record<string, string> = {
   '33': 'Tamil Nadu', '29': 'Karnataka', '32': 'Kerala', '37': 'Andhra Pradesh',
@@ -35,7 +42,7 @@ const money = (paise: number) =>
 /** "2026-08-05" -> "5-Aug-26" (same style as Tally) */
 function fmtDate(v: unknown) {
   const [y, m, d] = String(v ?? '').slice(0, 10).split('-')
-  if (!y || !m || !d) return '-'
+  if (!y || !m || !d) return ''
   return `${Number(d)}-${MONTHS[Number(m) - 1] ?? m}-${y.slice(2)}`
 }
 
@@ -61,13 +68,13 @@ function words(n: number): string {
   return parts.join(' ')
 }
 
-/** 1788700 paise -> "INR Seventeen Thousand Eight Hundred Eighty Seven Only" */
+/** 1639143 paise -> "INR Sixteen Thousand Three Hundred Ninety One Rupees and Forty Three Paise Only" (Tally style) */
 export function inrWords(paise: number) {
   const rupees = Math.floor(paise / 100)
   const ps = paise % 100
-  let s = words(rupees)
-  if (ps) s += (s ? ' and ' : '') + below100(ps) + ' paise'
-  return `INR ${s || 'Zero'} Only`
+  const r = words(rupees)
+  if (!ps) return `INR ${r || 'Zero'} Only`
+  return `INR ${r ? r + ' Rupees and ' : ''}${below100(ps)} Paise Only`
 }
 
 /* ------------------------------ invoice maths (all in paise, so no decimal errors) ------------------------------ */
@@ -89,10 +96,10 @@ export function calcInvoice(b: any) {
   return { amount, pct, interState, cgst, sgst, igst, tax, total, roundOff: total - exact }
 }
 
-/* ------------------------------ the invoice page ------------------------------ */
+/* ------------------------------ the invoice page (Tally layout) ------------------------------ */
 function partyBlock(title: string, c: any, code: string) {
-  return `<div class="cell"><small>${title}</small>
-    <b>${esc(c.name || '-')}</b>
+  return `<div class="cell"><div class="lbl">${title}</div>
+    <b>${esc(c.name || '')}</b>
     ${c.address ? `<div>${esc(c.address)}</div>` : ''}
     ${c.phone ? `<div>Phone : ${esc(c.phone)}</div>` : ''}
     ${c.gstin ? `<div>GSTIN/UIN : ${esc(c.gstin)}</div>` : ''}
@@ -100,30 +107,46 @@ function partyBlock(title: string, c: any, code: string) {
   </div>`
 }
 
+const metaCell = (label: string, value: unknown = '', cls = '') =>
+  `<div class="m ${cls}"><div class="lbl">${label}</div><b>${esc(value)}</b></div>`
+
 export function billHtml(b: any) {
   const c = b.customer || {}
   const k = calcInvoice(b)
   const unit = b.material?.unit && b.material.unit !== 'unit' ? String(b.material.unit) : ''
-  const hsn = b.material?.hsn_code ?? b.material?.hsn ?? ''
+  const hsn = String(b.material?.hsn_code ?? b.material?.hsn ?? '')
+  const unitName = UNIT_NAMES[unit.toLowerCase()] || ''
+  // customer ledger (the backend sends these on /sales/:id/print); the block is hidden if they are missing
+  const hasLedger = b.opening_balance != null
+  const opening = Math.round(Number(b.opening_balance || 0) * 100)
+  const closing = b.closing_balance != null ? Math.round(Number(b.closing_balance) * 100) : opening + k.total
   const buyerCode = String(c.gstin || '').trim().slice(0, 2)
   const half = +(k.pct / 2).toFixed(2)
   const pay = String(b.payment || '')
+  const qty = Number(b.quantity).toFixed(2)
+
+  const taxRow = (label: string, pct: number, amt: number) =>
+    `<tr class="tx"><td></td><td class="r">${label}</td><td></td><td></td><td class="r">${pct.toFixed(2)}</td><td>%</td><td class="r">${money(amt)}</td></tr>`
 
   const taxRows = k.interState
-    ? `<tr class="tx"><td></td><td class="r">OUTPUT IGST - ${+k.pct.toFixed(2)}%</td><td></td><td></td><td class="r">${k.pct.toFixed(2)}</td><td>%</td><td class="r">${money(k.igst)}</td></tr>`
+    ? taxRow(`OUTPUT IGST - ${+k.pct.toFixed(2)}%`, k.pct, k.igst)
     : k.pct > 0
-      ? `<tr class="tx"><td></td><td class="r">OUTPUT CGST - ${half}%</td><td></td><td></td><td class="r">${half.toFixed(2)}</td><td>%</td><td class="r">${money(k.cgst)}</td></tr>
-         <tr class="tx"><td></td><td class="r">OUTPUT SGST - ${half}%</td><td></td><td></td><td class="r">${half.toFixed(2)}</td><td>%</td><td class="r">${money(k.sgst)}</td></tr>`
+      ? taxRow(`OUTPUT CGST - ${half}%`, half, k.cgst) + taxRow(`OUTPUT SGST - ${half}%`, half, k.sgst)
       : ''
 
-  const roundRow =
-    k.roundOff !== 0
-      ? `<tr class="tx"><td></td><td class="r">ROUND OFF</td><td></td><td></td><td></td><td></td><td class="r">${k.roundOff < 0 ? '(-)' : ''}${money(Math.abs(k.roundOff))}</td></tr>`
-      : ''
+  // Tally always prints the ROUND OFF line, even when it is 0.00
+  const roundRow = `<tr class="tx"><td></td><td class="r">ROUND OFF</td><td></td><td></td><td></td><td></td><td class="r">${k.roundOff < 0 ? '(-)' : ''}${money(Math.abs(k.roundOff))}</td></tr>`
 
-  const hsnTax = k.interState
-    ? `<th rowspan="2">Taxable<br>Value</th><th colspan="2">IGST</th><th rowspan="2">Total<br>Tax Amount</th></tr><tr><th>Rate</th><th>Amount</th></tr>`
-    : `<th rowspan="2">Taxable<br>Value</th><th colspan="2">CGST</th><th colspan="2">SGST/UTGST</th><th rowspan="2">Total<br>Tax Amount</th></tr><tr><th>Rate</th><th>Amount</th><th>Rate</th><th>Amount</th></tr>`
+  const hsnCols = k.interState
+    ? [18, 24, 14, 22, 22]
+    : [14, 18, 10, 16, 10, 16, 16]
+  const hsnColgroup = `<colgroup>${hsnCols.map((w) => `<col style="width:${w}%">`).join('')}</colgroup>`
+
+  const hsnHead = k.interState
+    ? `<tr><th class="f" rowspan="2">HSN/SAC</th><th rowspan="2">Taxable<br>Value</th><th colspan="2">IGST</th><th rowspan="2">Total<br>Tax Amount</th></tr>
+       <tr><th>Rate</th><th>Amount</th></tr>`
+    : `<tr><th class="f" rowspan="2">HSN/SAC</th><th rowspan="2">Taxable<br>Value</th><th colspan="2">CGST</th><th colspan="2">SGST/UTGST</th><th rowspan="2">Total<br>Tax Amount</th></tr>
+       <tr><th>Rate</th><th>Amount</th><th>Rate</th><th>Amount</th></tr>`
 
   const hsnRow = k.interState
     ? `<td class="r">${money(k.amount)}</td><td class="r">${k.pct.toFixed(2)}%</td><td class="r">${money(k.igst)}</td><td class="r">${money(k.tax)}</td>`
@@ -139,47 +162,66 @@ export function billHtml(b: any) {
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 11.5px; line-height: 1.35; padding: 10mm; }
-  .ttl { text-align: center; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-  /* one outer frame draws the left/right/top/bottom border, so nothing is clipped when printing */
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 11px; line-height: 1.35; padding: 10mm; }
+  .ttl { text-align: center; font-size: 15px; font-weight: 700; padding: 4px 0; border-bottom: 1px solid #000; }
   .inv { border: 1px solid #000; }
-  .top { display: grid; grid-template-columns: 1.15fr 1fr; border-bottom: 1px solid #000; }
+  .lbl { font-size: 9.5px; color: #222; }
+  b { font-weight: 700; }
+
+  /* ---------- header: company / consignee / buyer on the left, reference cells on the right ---------- */
+  .top { display: grid; grid-template-columns: 1.1fr 1fr; border-bottom: 1px solid #000; }
   .top > .l { border-right: 1px solid #000; }
-  .cell { padding: 6px 8px; border-bottom: 1px solid #000; }
+  .cell { padding: 5px 7px; border-bottom: 1px solid #000; }
   .cell:last-child { border-bottom: 0; }
-  .cell small { display: block; font-size: 10px; color: #333; margin-bottom: 1px; }
-  .cell b { display: block; font-size: 12.5px; }
+  .cell b { display: block; font-size: 12px; }
   .co { display: flex; gap: 10px; align-items: center; }
   .co img { height: 46px; }
-  .meta { display: grid; grid-template-columns: 1fr 1fr; }
-  .meta .cell { border-right: 1px solid #000; }
-  .meta .cell:nth-child(2n) { border-right: 0; }
-  .meta .cell:nth-last-child(-n+2) { border-bottom: 0; }
+
+  .meta { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(5, auto) 1fr; }
+  .m { padding: 4px 7px; min-height: 36px; border-bottom: 1px solid #000; }
+  .m:nth-child(odd) { border-right: 1px solid #000; }
+  .m b { display: block; font-size: 11.5px; }
+  .m.full { grid-column: 1 / 3; border-right: 0; border-bottom: 0; }
+
+  /* ---------- items: vertical lines run the full height, like Tally ---------- */
   table { width: 100%; border-collapse: collapse; }
-  .items th, .items td { border-left: 1px solid #000; padding: 4px 6px; vertical-align: top; }
+  .items th, .items td { border-left: 1px solid #000; padding: 3px 6px; vertical-align: top; }
   .items th:first-child, .items td:first-child { border-left: 0; }
-  .items th { border-bottom: 1px solid #000; text-align: left; font-weight: 700; }
-  .items tr.fill td { height: 90px; }
-  .items tr.tx td { font-weight: 700; font-style: italic; }
-  .items tr.tot td { border-top: 1px solid #000; font-weight: 700; }
+  .items thead th { border-bottom: 1px solid #000; text-align: left; font-weight: 400; }
+  .items td.sp { height: 26px; }
+  .items tr.fill td { height: 120px; }
+  .items tr.tx td { font-weight: 700; font-style: italic; padding-top: 1px; padding-bottom: 1px; }
+  .items tr.tot td { border-top: 1px solid #000; border-bottom: 1px solid #000; font-weight: 700; }
   .r, .items th.r { text-align: right; }
-  .words { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 6px 8px; display: flex; justify-content: space-between; }
-  .hsn th, .hsn td { border-left: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 6px; text-align: center; }
-  .hsn th:first-child, .hsn td:first-child { border-left: 0; }
+  .un { font-size: 9px; font-weight: 400; color: #333; }
+
+  .words { padding: 4px 7px; display: flex; justify-content: space-between; border-bottom: 1px solid #000; }
+  .hsn { table-layout: fixed; }
+  .hsn th, .hsn td { border-left: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 5px; text-align: center; vertical-align: middle; }
+  .hsn .f { border-left: 0; text-align: left; }
+  .hsn th { font-weight: 400; }
   .hsn td.r { text-align: right; }
-  .hsn tr.sum td { font-weight: 700; }
-  .tw { padding: 6px 8px; border-bottom: 1px solid #000; }
+  .hsn tr.sum td { font-weight: 700; text-align: right; }
+  .tw { padding: 4px 7px; border-bottom: 1px solid #000; }
+
+  /* ---------- footer: declaration | bank details + signature ---------- */
   .foot { display: grid; grid-template-columns: 1fr 1fr; }
-  .foot > div { padding: 8px; min-height: 110px; }
-  .foot > div + div { border-left: 1px solid #000; }
-  .sign { text-align: right; margin-top: 34px; }
-  .notes { margin-top: 6px; font-size: 10.5px; }
-  .cg { text-align: center; margin-top: 6px; font-size: 10.5px; }
+  .foot > .decl { padding: 6px 7px; min-height: 110px; }
+  .foot > .right { border-left: 1px solid #000; display: flex; flex-direction: column; }
+  .bank { padding: 6px 7px; }
+  .bank div { padding: 0.5px 0; }
+  .bank .t { text-decoration: underline; font-weight: 700; margin-bottom: 2px; }
+  .sig { margin-top: auto; border-top: 1px solid #000; padding: 4px 7px 4px; text-align: right; min-height: 62px; display: flex; flex-direction: column; justify-content: space-between; }
+  .notes { margin-top: 6px; font-size: 10px; }
+
+  .ledger { margin-top: 8px; font-size: 11px; }
+  .ledger td { border: 1px solid #000; padding: 4px 8px; }
+  .ledger td.r { text-align: right; font-weight: 700; }
+  .cg { text-align: center; margin-top: 5px; font-size: 10px; }
 </style></head>
 <body>
-  <div class="ttl">Tax Invoice</div>
-
   <div class="inv">
+  <div class="ttl">TAX INVOICE</div>
   <div class="top">
     <div class="l">
       <div class="cell">
@@ -188,7 +230,7 @@ export function billHtml(b: any) {
           <div>
             <b>${esc(COMPANY.name)}</b>
             ${COMPANY.address.map((a) => `<div>${esc(a)}</div>`).join('')}
-            <div>GSTIN/UIN: ${esc(COMPANY.gstin)}</div>
+            <div>GSTIN/UIN : ${esc(COMPANY.gstin)}</div>
             <div>State Name : ${esc(COMPANY.state)}, Code : ${esc(COMPANY.stateCode)}</div>
           </div>
         </div>
@@ -198,50 +240,59 @@ export function billHtml(b: any) {
     </div>
 
     <div class="meta">
-      <div class="cell"><small>Invoice No.</small><b>${esc(b.bill_no)}</b></div>
-      <div class="cell"><small>Dated</small><b>${esc(fmtDate(b.date))}</b></div>
-      <div class="cell"><small>Dispatched through</small><b>${esc(b.vehicle?.plate_number || '-')}</b></div>
-      <div class="cell"><small>Driver</small><b>${esc(b.driver?.full_name || '-')}</b></div>
-      <div class="cell"><small>Payment</small><b style="text-transform:capitalize">${esc(pay || '-')}</b></div>
-      <div class="cell"><small>Vehicle type</small><b>${esc(b.vehicle?.type || '-')}</b></div>
+      ${metaCell('Invoice No.', b.bill_no)}
+      ${metaCell('Dated', fmtDate(b.date))}
+      ${metaCell('Delivery Note', b.delivery_note)}
+      ${metaCell('Mode/Terms of Payment', pay ? pay.charAt(0).toUpperCase() + pay.slice(1) : '')}
+      ${metaCell('Reference No. & Date.', b.reference)}
+      ${metaCell('Other References', b.driver?.full_name ? 'Driver: ' + b.driver.full_name : '')}
+      ${metaCell("Buyer's Order No.", b.order_no)}
+      ${metaCell('Dated', b.order_date ? fmtDate(b.order_date) : '')}
+      ${metaCell('Dispatch Doc No.', b.dispatch_doc)}
+      ${metaCell('Delivery Note Date', b.delivery_note_date ? fmtDate(b.delivery_note_date) : '')}
+      ${metaCell('Dispatched through', b.vehicle?.plate_number)}
+      ${metaCell('Destination', b.destination)}
+      ${metaCell('Terms of Delivery', b.terms_of_delivery, 'full')}
     </div>
   </div>
 
   <table class="items">
     <thead><tr>
-      <th style="width:34px">Sl No.</th><th>Description of Goods</th><th style="width:70px">HSN/SAC</th>
-      <th class="r" style="width:92px">Quantity</th><th class="r" style="width:84px">Rate</th><th style="width:36px">per</th><th class="r" style="width:96px">Amount</th>
+      <th style="width:34px">Sl<br>No.</th><th style="text-align:center">Description of Goods</th><th style="width:62px">HSN/SAC</th>
+      <th class="r" style="width:92px">Quantity</th><th class="r" style="width:80px">Rate</th><th style="width:34px">per</th><th class="r" style="width:96px">Amount</th>
     </tr></thead>
     <tbody>
       <tr>
-        <td>1</td><td><b>${esc(b.material?.name || '-')}</b></td><td>${esc(hsn)}</td>
-        <td class="r"><b>${Number(b.quantity).toFixed(2)}${unit ? ' ' + esc(unit) : ''}</b></td>
+        <td>1</td><td><b>${esc(b.material?.name || '')}</b></td><td>${esc(hsn)}</td>
+        <td class="r"><b>${qty}${unit ? ' ' + esc(unit) : ''}</b>${unitName ? `<div class="un">${esc(unitName)}</div>` : ''}</td>
         <td class="r">${money(Math.round(Number(b.rate) * 100))}</td><td>${esc(unit)}</td>
         <td class="r"><b>${money(k.amount)}</b></td>
       </tr>
-      <tr class="fill"><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="sp"></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
       ${taxRows}
       ${roundRow}
+      <tr class="fill"><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
       <tr class="tot">
         <td></td><td class="r">Total</td><td></td>
-        <td class="r">${Number(b.quantity).toFixed(2)}${unit ? ' ' + esc(unit) : ''}</td><td></td><td></td>
+        <td class="r">${qty}${unit ? ' ' + esc(unit) : ''}</td><td></td><td></td>
         <td class="r">₹ ${money(k.total)}</td>
       </tr>
     </tbody>
   </table>
 
   <div class="words">
-    <div><small>Amount Chargeable (in words)</small><br><b>${esc(inrWords(k.total))}</b></div>
-    <div>E. &amp; O.E</div>
+    <div><span class="lbl">Amount Chargeable (in words)${WORDS_ON_BASE_AMOUNT && k.tax > 0 ? ' - base value' : ''}</span><br><b>${esc(inrWords(WORDS_ON_BASE_AMOUNT ? k.amount : k.total))}</b></div>
+    <div style="text-align:right"><i>E. &amp; O.E</i></div>
   </div>
 
   ${
     k.pct > 0
       ? `<table class="hsn">
-    <thead><tr><th rowspan="2">HSN/SAC</th>${hsnTax}</thead>
+    ${hsnColgroup}
+    <thead>${hsnHead}</thead>
     <tbody>
-      <tr><td>${esc(hsn)}</td>${hsnRow}</tr>
-      <tr class="sum"><td>Total</td>${hsnTotal}</tr>
+      <tr><td class="f">${esc(hsn)}</td>${hsnRow}</tr>
+      <tr class="sum"><td class="f" style="text-align:right">Total</td>${hsnTotal}</tr>
     </tbody>
   </table>
   <div class="tw">Tax Amount (in words) : <b>${esc(inrWords(k.tax))}</b></div>`
@@ -249,22 +300,34 @@ export function billHtml(b: any) {
   }
 
   <div class="foot">
-    <div>
-      <b>Declaration</b>
+    <div class="decl">
+      <u>Declaration</u>
       <div>We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
       ${b.notes ? `<div class="notes"><b>Notes:</b> ${esc(b.notes)}</div>` : ''}
     </div>
-    <div>
-      <b>Company's Bank Details</b>
-      <div>A/c Holder's Name : ${esc(COMPANY.bank.holder)}</div>
-      <div>Bank Name : ${esc(COMPANY.bank.name)}</div>
-      <div>A/c No. : ${esc(COMPANY.bank.account)}</div>
-      <div>Branch &amp; IFS Code : ${esc(COMPANY.bank.branch)}</div>
-      <div class="sign"><b>for ${esc(COMPANY.name)}</b><br><br>Authorised Signatory</div>
+    <div class="right">
+      <div class="bank">
+        <div class="t">Company's Bank Details</div>
+        <div>A/c Holder's Name : <b>${esc(COMPANY.bank.holder)}</b></div>
+        <div>Bank Name : <b>${esc(COMPANY.bank.name)}</b></div>
+        <div>A/c No. : <b>${esc(COMPANY.bank.account)}</b></div>
+        <div>Branch &amp; IFS Code : <b>${esc(COMPANY.bank.branch)}</b></div>
+      </div>
+      <div class="sig"><b>for ${esc(COMPANY.name)}</b><span>Authorised Signatory</span></div>
     </div>
   </div>
   </div>
   <div class="cg">This is a Computer Generated Invoice</div>
+  ${
+    hasLedger
+      ? `<table class="ledger"><tr>
+      <td>Customer ledger</td>
+      <td>Opening balance</td><td class="r">₹ ${money(opening)}</td>
+      <td>This invoice</td><td class="r">₹ ${money(k.total)}</td>
+      <td>Closing balance</td><td class="r">₹ ${money(closing)}</td>
+    </tr></table>`
+      : ''
+  }
 
   <script>window.onload = function () { setTimeout(function () { window.print() }, 400) }</script>
 </body></html>`
