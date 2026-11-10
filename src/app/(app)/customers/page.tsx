@@ -1,9 +1,10 @@
 'use client'
-// app/customers/page.tsx
+// app/(app)/customers/page.tsx
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
   Plus, Search, Pencil, Trash2, Loader2, AlertTriangle, X,
-  Users, Phone, FileText,
+  Users, Phone, FileText, BookOpen,
 } from 'lucide-react'
 import { useResource } from '@/hooks/useResource'
 import Modal from '@/components/ui/Modal'
@@ -169,7 +170,13 @@ export default function CustomersPage() {
                           {initials(c.name)}
                         </span>
                         <div className="min-w-0">
-                          <p className="font-medium text-ink">{c.name}</p>
+                          {/* name opens the customer's statement */}
+                          <Link
+                            href={`/customers/${c.id}/statement`}
+                            className="font-medium text-ink hover:underline"
+                          >
+                            {c.name}
+                          </Link>
                           {c.email && <p className="truncate text-xs text-gravel">{c.email}</p>}
                         </div>
                       </div>
@@ -190,6 +197,14 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-1">
+                        <Link
+                          href={`/customers/${c.id}/statement`}
+                          aria-label={`Statement for ${c.name}`}
+                          title="Statement"
+                          className="rounded-lg p-2 text-gravel transition hover:bg-black/5 hover:text-ink"
+                        >
+                          <BookOpen size={17} />
+                        </Link>
                         <button
                           onClick={() => r.openEdit(c)}
                           aria-label={`Edit ${c.name}`}

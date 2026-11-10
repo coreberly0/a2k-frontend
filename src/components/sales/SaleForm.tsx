@@ -1,12 +1,15 @@
 'use client'
 // components/sales/SaleForm.tsx
-import { useState, FormEvent, ReactNode } from 'react'
+import { useEffect, useState, FormEvent, ReactNode } from 'react'
 import {
   Hash, CalendarDays, UserRound, Boxes, Truck, Contact, Package, IndianRupee, Percent, Check, CircleAlert,
+  Paperclip, Upload, X,
 } from 'lucide-react'
 import { useOptions } from '@/hooks/useOptions'
 import { money, orNull, todayStr } from '@/lib/format'
 import { salesBillApi } from '@/lib/billApi'
+import { paymentFilesApi, ReceiptFile } from '@/lib/paymentFilesApi'
+import { getLedger } from '@/lib/ledgerApi'
 import { Field, Dropdown, normalize, fieldBase, inputBase } from '@/components/ui/formKit'
 // NOTE: this must match the real filename on disk exactly (Vercel is case-sensitive)
 import BillField from '@/components/purchases/Billfield'
@@ -26,29 +29,45 @@ export type Sale = {
   payment: string | null
   notes: string | null
   total_amount: number | string
+  // filled by the backend from the linked payment
+  received_amount?: number | string | null
+  received_payment_id?: string | null
+  received_mode?: string | null
+  received_reference?: string | null
+  balance_due?: number | string | null
   bill_name?: string | null
   customer?: { name: string } | null
   material?: { name: string } | null
   vehicle?: { plate_number: string } | null
 }
 
-/** What the person did with the bill copy in this form. */
+/** What the person did with the SALES BILL COPY in this form (one file). */
 export type BillChange = { file: File | null; remove: boolean }
+
+/** What the person did with the PAYMENT RECEIPT files in this form (many files). */
+export type ReceiptChange = { files: File[]; removeIds: string[] }
 
 type Props = {
   initial?: Sale | null
   saving: boolean
   error: string
-  onSubmit: (values: Record<string, unknown>, bill: BillChange) => void
+  onSubmit: (values: Record<string, unknown>, bill: BillChange, receipt: ReceiptChange) => void
 }
 
 /** The panel footer buttons submit this form through its id. */
 export const SALE_FORM_ID = 'sale-form'
 
 const GST_PRESETS = ['5', '12', '18', '28']
+const MODES = ['cash', 'upi', 'bank', 'cheque', 'other']
+
+const RECEIPT_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+const RECEIPT_MAX_MB = 5
+const RECEIPT_MAX_FILES = 10
 
 // no overflow-hidden on the cards, so dropdown lists can open past the card edge
 const CARD = 'rounded-2xl border border-black/10 bg-white shadow-sm'
+
+const r2 = (n: number) => Math.round(n * 100) / 100
 
 function formatDate(value: string) {
   if (!value) return '-'
@@ -57,14 +76,111 @@ function formatDate(value: string) {
 }
 
 /** One label / value line in the summary. */
-function Line({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Line({
+  label, hint, strong, children,
+}: { label: string; hint?: string; strong?: boolean; children: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 text-sm">
-      <dt className="text-gravel">
+      <dt className={strong ? 'font-semibold text-ink' : 'text-gravel'}>
         {label}
-        {hint && <span className="mt-0.5 block text-xs text-gravel/70">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-xs font-normal text-gravel/70">{hint}</span>}
       </dt>
-      <dd className="font-medium tabular-nums text-ink">{children}</dd>
+      <dd className={`tabular-nums ${strong ? 'font-bold text-ink' : 'font-medium text-ink'}`}>{children}</dd>
+    </div>
+  )
+}
+
+/**
+ * Payment receipt picker (UPI screenshot / bank slip).
+ * Different from the sales bill copy: many files, attached to the money received.
+ */
+function ReceiptField({
+  files, onFilesChange, existing, onRemoveExisting, disabled, error, onError,
+}: {
+  files: File[]
+  onFilesChange: (f: File[]) => void
+  existing: ReceiptFile[]
+  onRemoveExisting: (id: string) => void
+  disabled: boolean
+  error: string
+  onError: (m: string) => void
+}) {
+  function add(list: FileList | null) {
+    if (!list) return
+    const next = [...files]
+    for (const f of Array.from(list)) {
+      if (!RECEIPT_TYPES.includes(f.type)) { onError('Only PDF, JPG, PNG or WEBP files are allowed'); continue }
+      if (f.size > RECEIPT_MAX_MB * 1024 * 1024) { onError(`Each file must be ${RECEIPT_MAX_MB} MB or smaller`); continue }
+      if (existing.length + next.length >= RECEIPT_MAX_FILES) { onError(`Up to ${RECEIPT_MAX_FILES} receipt files`); break }
+      next.push(f)
+    }
+    onFilesChange(next)
+  }
+
+  return (
+    <div>
+      <span className="mb-2 block text-sm font-medium text-ink">
+        Payment receipt <span className="font-normal text-gravel">(optional)</span>
+      </span>
+
+      <label
+        className={`flex items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white px-4 py-3 text-sm text-gravel transition ${
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-black/5'
+        }`}
+      >
+        <Upload size={18} className="shrink-0" />
+        <span className="min-w-0">
+          {disabled ? 'Enter the amount received first' : 'Upload UPI / bank slip'}
+          <span className="block text-xs text-gravel/70">PDF, JPG, PNG, max {RECEIPT_MAX_MB} MB each</span>
+        </span>
+        <input
+          type="file"
+          multiple
+          disabled={disabled}
+          accept=".pdf,image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => { onError(''); add(e.target.files); e.target.value = '' }}
+        />
+      </label>
+
+      {(existing.length > 0 || files.length > 0) && (
+        <ul className="mt-2 space-y-1">
+          {existing.map((f) => (
+            <li key={f.id} className="flex items-center justify-between gap-3 rounded-lg bg-paper/70 px-3 py-1.5 text-xs text-ink">
+              <a
+                href={f.url ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-w-0 items-center gap-1.5 hover:underline"
+              >
+                <Paperclip size={13} className="shrink-0 text-gravel" />
+                <span className="truncate">{f.name}</span>
+              </a>
+              <button type="button" onClick={() => onRemoveExisting(f.id)} aria-label={`Remove ${f.name}`} className="text-red-600">
+                <X size={14} />
+              </button>
+            </li>
+          ))}
+          {files.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-3 rounded-lg bg-signal/10 px-3 py-1.5 text-xs text-ink">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Paperclip size={13} className="shrink-0 text-gravel" />
+                <span className="truncate">{f.name}</span>
+                <span className="shrink-0 text-gravel">· new</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onFilesChange(files.filter((_, j) => j !== i))}
+                aria-label={`Remove ${f.name}`}
+                className="text-red-600"
+              >
+                <X size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   )
 }
@@ -87,19 +203,71 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
   const [gstPercent, setGstPercent] = useState(
     initial?.gst_percent != null ? String(initial.gst_percent) : ''
   )
-  const [payment, setPayment] = useState(initial?.payment ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
-  const [errs, setErrs] = useState<{ customer?: string; material?: string }>({})
+  const [errs, setErrs] = useState<{ customer?: string; material?: string; received?: string }>({})
 
-  // bill copy
+  // money received with this bill
+  const initialReceived = Number(initial?.received_amount) || 0
+  const [receivedAmount, setReceivedAmount] = useState(initialReceived > 0 ? String(initialReceived) : '')
+  const [receivedMode, setReceivedMode] = useState(initial?.received_mode || 'cash')
+  const [receivedRef, setReceivedRef] = useState(initial?.received_reference ?? '')
+
+  // customer's balance from the ledger
+  const [ledgerBalance, setLedgerBalance] = useState<number | null>(null)
+
+  // 1) sales bill copy (one file, stored on the sale)
   const [billFile, setBillFile] = useState<File | null>(null)
   const [billRemoved, setBillRemoved] = useState(false)
   const [billError, setBillError] = useState('')
 
+  // 2) payment receipt files (many files, stored on the linked payment)
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([])
+  const [existingReceipts, setExistingReceipts] = useState<ReceiptFile[]>([])
+  const [removeReceiptIds, setRemoveReceiptIds] = useState<string[]>([])
+  const [receiptError, setReceiptError] = useState('')
+
   const base = Number(quantity || 0) * Number(rate || 0)
   const gstAmount = withGst ? (base * Number(gstPercent || 0)) / 100 : 0
-  const total = base + gstAmount
+  const total = r2(base + gstAmount)
   const hasLine = Number(quantity) > 0 && Number(rate) > 0
+
+  const received = Math.max(Number(receivedAmount) || 0, 0)
+  const balanceDue = r2(total - received)
+
+  // Ledger closing balance already includes the saved version of this bill and its payment
+  // when editing, so take them out to get the balance from BEFORE this bill.
+  const savedTotal = Number(initial?.total_amount) || 0
+  const sameCustomer = !!initial && initial.customer_id === customerId
+  const previous =
+    ledgerBalance == null ? null : r2(ledgerBalance - (sameCustomer ? savedTotal - initialReceived : 0))
+  const totalDue = previous == null ? null : r2(previous + total)
+  const closing = previous == null ? null : r2(previous + total - received)
+
+  useEffect(() => {
+    if (!customerId) { setLedgerBalance(null); return }
+    let cancelled = false
+    getLedger(customerId)
+      .then((l: any) => { if (!cancelled) setLedgerBalance(Number(l.closing_balance) || 0) })
+      .catch(() => { if (!cancelled) setLedgerBalance(null) })
+    return () => { cancelled = true }
+  }, [customerId])
+
+  // when editing, load the receipt files already saved on the linked payment
+  const paymentId = initial?.received_payment_id ?? null
+  useEffect(() => {
+    if (!paymentId) { setExistingReceipts([]); return }
+    let cancelled = false
+    paymentFilesApi
+      .list(paymentId)
+      .then((list) => { if (!cancelled) setExistingReceipts(list) })
+      .catch(() => { if (!cancelled) setExistingReceipts([]) })
+    return () => { cancelled = true }
+  }, [paymentId])
+
+  function removeExistingReceipt(id: string) {
+    setExistingReceipts((list) => list.filter((f) => f.id !== id))
+    setRemoveReceiptIds((ids) => [...ids, id])
+  }
 
   async function viewExistingBill() {
     if (!initial) return
@@ -118,8 +286,9 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
     const next: typeof errs = {}
     if (!customerId) next.customer = 'Please select a customer'
     if (!materialId) next.material = 'Please select a material'
+    if (received > total) next.received = 'Cannot be more than the bill total. Use Payments for advance money.'
     setErrs(next)
-    if (next.customer || next.material) return
+    if (next.customer || next.material || next.received) return
 
     const body: Record<string, unknown> = {
       bill_no: billNo.trim(),
@@ -132,10 +301,21 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
       rate: Number(rate),
       with_gst: withGst,
       notes: orNull(notes),
+      // the backend sets paid / unpaid from this, so "payment" is no longer sent
+      received_amount: received > 0 ? received : '',
+    }
+    if (received > 0) {
+      body.received_mode = receivedMode
+      body.received_reference = receivedRef.trim()
     }
     if (withGst && gstPercent !== '') body.gst_percent = Number(gstPercent)
-    if (payment) body.payment = payment
-    onSubmit(body, { file: billFile, remove: billRemoved })
+
+    onSubmit(
+      body,
+      { file: billFile, remove: billRemoved },
+      // no money received = no payment row, so there is nothing to attach receipts to
+      { files: received > 0 ? receiptFiles : [], removeIds: removeReceiptIds },
+    )
   }
 
   const shownError = error || billError
@@ -148,6 +328,8 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
     !(Number(quantity) > 0) && 'Quantity',
     !(Number(rate) > 0) && 'Rate',
   ].filter(Boolean) as string[]
+
+  const status = total > 0 ? (received >= total ? 'paid' : received > 0 ? 'part' : 'unpaid') : null
 
   const box = `${fieldBase} border-black/10`
 
@@ -338,18 +520,114 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
             )}
           </div>
 
-          {/* bill copy and notes side by side */}
+          {/* money received with this bill (+ its payment receipt) */}
+          <div className="rounded-xl border border-black/10 bg-paper/60 p-4 sm:col-span-2 xl:col-span-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-ink">Money received now</p>
+                <p className="text-xs text-gravel">
+                  Leave empty if nothing was paid. Whatever is left stays on the customer&apos;s ledger.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!(total > 0)}
+                  onClick={() => setReceivedAmount(String(total))}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-black/5 disabled:opacity-50"
+                >
+                  Full amount
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setReceivedAmount(''); setErrs((x) => ({ ...x, received: undefined })) }}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-black/5"
+                >
+                  Nothing
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-4 sm:grid-cols-3">
+              <Field label="Amount received" optional>
+                <div className={`${box} bg-white`}>
+                  <IndianRupee size={18} className="shrink-0 text-gravel" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={receivedAmount}
+                    onChange={(e) => {
+                      setReceivedAmount(e.target.value)
+                      setErrs((x) => ({ ...x, received: undefined }))
+                    }}
+                    placeholder="0.00"
+                    className={inputBase}
+                  />
+                </div>
+                {errs.received && <p className="mt-1 text-xs text-red-600">{errs.received}</p>}
+              </Field>
+
+              <Field label="Payment method" optional>
+                <div className={`${box} bg-white`}>
+                  <select
+                    value={receivedMode}
+                    onChange={(e) => setReceivedMode(e.target.value)}
+                    disabled={received <= 0}
+                    className={`${inputBase} disabled:opacity-50`}
+                  >
+                    {MODES.map((m) => (
+                      <option key={m} value={m}>{m.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+              </Field>
+
+              <Field label="Reference / UTR / cheque no." optional>
+                <div className={`${box} bg-white`}>
+                  <input
+                    value={receivedRef}
+                    onChange={(e) => setReceivedRef(e.target.value)}
+                    disabled={received <= 0}
+                    placeholder="Optional"
+                    className={`${inputBase} disabled:opacity-50`}
+                  />
+                </div>
+              </Field>
+            </div>
+
+            {/* attachment 2: payment receipt, only when money was received */}
+            <div className="mt-4 border-t border-black/5 pt-4">
+              <ReceiptField
+                files={receiptFiles}
+                onFilesChange={setReceiptFiles}
+                existing={existingReceipts}
+                onRemoveExisting={removeExistingReceipt}
+                disabled={received <= 0 || saving}
+                error={receiptError}
+                onError={setReceiptError}
+              />
+            </div>
+          </div>
+
+          {/* attachment 1: sales bill copy, and notes side by side */}
           <div className="sm:col-span-2 xl:col-span-3">
             <div className="grid gap-4 sm:grid-cols-2">
-              <BillField
-                file={billFile}
-                onFileChange={setBillFile}
-                existingName={initial?.bill_name}
-                onViewExisting={viewExistingBill}
-                onRemoveExisting={() => setBillRemoved(true)}
-                removed={billRemoved}
-                disabled={saving}
-              />
+              <div>
+                <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gravel">
+                  Sales bill copy
+                </span>
+                <BillField
+                  file={billFile}
+                  onFileChange={setBillFile}
+                  existingName={initial?.bill_name}
+                  onViewExisting={viewExistingBill}
+                  onRemoveExisting={() => setBillRemoved(true)}
+                  removed={billRemoved}
+                  disabled={saving}
+                />
+              </div>
 
               <Field label="Notes" optional>
                 <div className={`${fieldBase} items-start border-black/10`}>
@@ -367,7 +645,7 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
         </div>
       </section>
 
-      {/* ---------- right: summary, payment and what is missing (no inner scrolling) ---------- */}
+      {/* ---------- right: summary, balance and what is missing ---------- */}
       <aside className={`${CARD} p-5`}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -376,13 +654,13 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
               {billNo.trim() ? `Bill ${billNo.trim()}` : 'No bill number yet'} · {formatDate(date)}
             </p>
           </div>
-          {payment && (
+          {status && (
             <span
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                payment === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
               }`}
             >
-              {payment === 'paid' ? 'Paid' : 'Unpaid'}
+              {status === 'paid' ? 'Paid' : status === 'part' ? 'Part paid' : 'Unpaid'}
             </span>
           )}
         </div>
@@ -397,34 +675,38 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
         </dl>
 
         <div className="mt-4 rounded-xl bg-ink px-4 py-4">
-          <p className="text-xs text-gravel">Total amount</p>
+          <p className="text-xs text-gravel">This bill</p>
           <p className="mt-1 font-display text-3xl font-bold tabular-nums text-signal">{money(total)}</p>
         </div>
 
-        <div className="mt-5">
-          <p className="mb-2 text-sm font-medium text-ink">
-            Payment <span className="font-normal text-gravel">(optional)</span>
-          </p>
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-black/10 bg-paper/60 p-1">
-            {[
-              { v: 'paid', label: 'Paid', on: 'bg-green-600 text-white' },
-              { v: 'unpaid', label: 'Unpaid', on: 'bg-amber-500 text-white' },
-            ].map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                aria-pressed={payment === o.v}
-                // click again to clear, since payment is optional
-                onClick={() => setPayment(payment === o.v ? '' : o.v)}
-                className={`rounded-lg py-2.5 text-sm font-semibold transition ${
-                  payment === o.v ? `${o.on} shadow-sm` : 'text-gravel hover:bg-black/5 hover:text-ink'
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
+        {/* running balance for this customer */}
+        <dl className="mt-4 space-y-2.5">
+          {customerId && (
+            <Line
+              label="Previous balance"
+              hint={previous != null && previous < 0 ? 'Customer paid in advance' : 'Unpaid from earlier bills'}
+            >
+              {previous == null ? '…' : money(Math.abs(previous)) + (previous < 0 ? ' Cr' : '')}
+            </Line>
+          )}
+          {customerId && totalDue != null && (
+            <Line label="Total to pay">{money(Math.abs(totalDue)) + (totalDue < 0 ? ' Cr' : '')}</Line>
+          )}
+          <Line label="Received now">
+            <span className="text-green-700">{money(received)}</span>
+          </Line>
+          <div className="border-t border-black/5 pt-2.5">
+            <Line label="Balance after this bill" strong>
+              <span className={(closing ?? balanceDue) > 0 ? 'text-red-600' : 'text-green-700'}>
+                {money(Math.abs(closing ?? balanceDue))}
+                {(closing ?? balanceDue) > 0 ? ' Dr' : (closing ?? balanceDue) < 0 ? ' Cr' : ''}
+              </span>
+            </Line>
           </div>
-        </div>
+        </dl>
+        <p className="mt-2 text-xs text-gravel">
+          The balance goes to the Ledger, and the next bill for this customer starts from it.
+        </p>
 
         {shownError && (
           <p
@@ -454,9 +736,7 @@ export default function SaleForm({ initial, saving, error, onSubmit }: Props) {
   )
 }
 
-/** Footer buttons for the add/edit panels. Submits the form above by its id.
- *  The sales page uses FormActions from formKit instead, so this is only needed
- *  while add.tsx / edit.tsx still exist. */
+/** Footer buttons for the add/edit panels. Submits the form above by its id. */
 export function SaleFormActions({
   saving,
   onCancel,
