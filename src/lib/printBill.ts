@@ -116,10 +116,6 @@ export function billHtml(b: any, autoPrint = true) {
   const unit = b.material?.unit && b.material.unit !== 'unit' ? String(b.material.unit) : ''
   const hsn = String(b.material?.hsn_code ?? b.material?.hsn ?? '')
   const unitName = UNIT_NAMES[unit.toLowerCase()] || ''
-  // customer ledger (the backend sends these on /sales/:id/print); the block is hidden if they are missing
-  const hasLedger = b.opening_balance != null
-  const opening = Math.round(Number(b.opening_balance || 0) * 100)
-  const closing = b.closing_balance != null ? Math.round(Number(b.closing_balance) * 100) : opening + k.total
   const buyerCode = String(c.gstin || '').trim().slice(0, 2)
   const half = +(k.pct / 2).toFixed(2)
   const pay = String(b.payment || '')
@@ -217,9 +213,6 @@ export function billHtml(b: any, autoPrint = true) {
   .sig { margin-top: auto; border-top: 1px solid #000; padding: 4px 7px 4px; text-align: right; min-height: 62px; display: flex; flex-direction: column; justify-content: space-between; }
   .notes { margin-top: 6px; font-size: 10px; }
 
-  .ledger { margin-top: 8px; font-size: 11px; }
-  .ledger td { border: 1px solid #000; padding: 4px 8px; }
-  .ledger td.r { text-align: right; font-weight: 700; }
   .cg { text-align: center; margin-top: 5px; font-size: 10px; }
 </style></head>
 <body>
@@ -321,17 +314,7 @@ export function billHtml(b: any, autoPrint = true) {
     </div>
   </div>
   </div>
-  <div class="cg">This is a Computer Generated Invoice</div>
-  ${
-    hasLedger
-      ? `<table class="ledger"><tr>
-      <td>Customer ledger</td>
-      <td>Opening balance</td><td class="r">₹ ${money(opening)}</td>
-      <td>This invoice</td><td class="r">₹ ${money(k.total)}</td>
-      <td>Closing balance</td><td class="r">₹ ${money(closing)}</td>
-    </tr></table>`
-      : ''
-  }
+  
 
   ${autoPrint ? '<script>window.onload = function () { setTimeout(function () { window.print() }, 400) }</script>' : ''}
 </body></html>`
